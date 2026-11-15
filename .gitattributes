@@ -1,0 +1,4 @@
+# The same bytes on every computer: the guides are built into the program as they are, and a
+# test reads the source files themselves.
+* text=auto eol=lf
+*.png binary

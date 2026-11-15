@@ -1,0 +1,25 @@
+# Only the program's own source is kept in this repository: everything else in this folder
+# (build output, saved settings and images, local tools, work files) stays on the computer.
+# A new file is ignored until it is listed here.
+/*
+!/.gitignore
+!/.gitattributes
+!/LICENSE
+!/README.md
+!/THIRD-PARTY-NOTICES.md
+!/Cargo.toml
+!/Cargo.lock
+!/build.rs
+!/src/
+!/docs/
+!/사용안내.txt
+!/Guide.txt
+!/使用说明.txt
+!/使い方.txt
+
+# Check scripts for a built program; the folders tests write beside them are not kept.
+!/checks/
+/checks/*
+!/checks/verify-floating.ps1
+!/checks/verify-languages.ps1
+!/checks/verify-setup.ps1

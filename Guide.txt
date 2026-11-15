@@ -1,0 +1,130 @@
+Event Studio — Branded event timer
+
+Getting started
+  Installed: run EventStudio_Setup.exe and press "Install". Open it with "Event Studio" on the
+  desktop or in the Start menu. No administrator rights or internet connection are needed.
+  Without installing: you can also just run EventStudio.exe.
+  On the Brand tab, enter the brand name, the event name and the subtitle.
+  "Choose image" puts in your logo, a partner logo and a background.
+  The settings panel scrolls down.
+
+Language (한국어 · English · 中文 · 日本語)
+  In the language box at the top right of the editor, choose 한국어, English, 中文 (Simplified) or
+  日本語: the texts change at once. The lines on the floating timer and in the audience window
+  ("Wrapping up", "Presentation time" and so on) change with them.
+  The choice is saved and is still there the next time you open the program. The brand name,
+  event name and subtitle you typed are not changed.
+  On a computer with no settings yet, the first start follows the Windows display language
+  (English if it is none of the four).
+  The setup and removal windows have the same box at their top right. The Start-menu shortcuts
+  for the guide and for uninstalling are named in the language chosen in the setup window. The
+  guide is installed in all four languages (사용안내.txt, Guide.txt, 使用说明.txt, 使い方.txt).
+
+Display
+  Choose Circle, Bar or Digits. Changing it while the timer runs keeps the time.
+  On the Timing tab, type minutes and seconds or pick 3, 5, 10, 15 or 20 min.
+  A presentation time set while the timer runs applies after a reset.
+  −1 min, −10 s, +10 s and +1 min at the bottom change the running timer right away.
+
+Running an event
+  Control the time with Start, Pause and Resume.
+  With "Auto-start Q&A after presentation" on, the timer moves on to Q&A when the presentation
+  ends.
+  "Switch to Q&A" moves on early, and you can choose to carry the unused time over.
+  A warning, an end signal, overtime, counting up and seconds-only display are also there.
+  With "Count up (show elapsed time)" on, the circle and the bar fill up as time passes instead
+  of running down.
+
+Floating timer (no background, always on top)
+  Press "Open floating timer" at the top (or use the "Floating timer" tab) and the editor turns
+  into a small timer with no background, at the top right of the screen, above every window.
+  Even over fullscreen slides it comes back to the top every second.
+  Move the mouse over it and the Reset · Resume · Pause buttons appear on the timer.
+    Reset: back to the start time, stopped
+    Resume: goes on from where it stopped ("Start" the first time)
+    Pause: stops for a moment
+    Gear button: back to the editor    X button: quit the app
+  The buttons go away when the mouse leaves or has not moved for 3 seconds.
+  Drag the timer to move it, click to start/pause, right-click to reset.
+  Drag the bottom-right corner or use Ctrl+mouse wheel to change its size.
+  Pressing the buttons does not take the keyboard away from PowerPoint or other slide software.
+  A click on an empty spot (no digits, circle or bar) goes to the window behind.
+  While it floats it is not on the taskbar or in the Alt+Tab list (so you cannot switch to it
+  or minimise it by accident during a talk).
+  To come back to the editor, move the mouse over the timer and press the gear button; press
+  the X button to quit.
+  The floating timer's background is always see-through. The event background image appears
+  only in the preview, fullscreen and the audience window.
+  With "Show brand, event name and logos too" on, the brand name, event name, subtitle and
+  logos appear above the timer as text and pictures only, with no background. They grow with
+  the window.
+  Only if the text is hard to read, raise the "Dark backdrop" on the "Floating timer" tab
+  (0% is fully see-through).
+  With "Start up as the floating timer" on, the next start opens straight as the floating
+  timer.
+  With global hotkeys on, these work while you are in another program:
+  Ctrl+Alt+Space start/pause, Ctrl+Alt+R reset, Ctrl+Alt+Q switch to Q&A.
+  While the floating timer is up, Ctrl+1 start/pause, Ctrl+2 reset and Ctrl+3 Q&A work too.
+
+Setup file (installing on another computer)
+  Press "Make setup file" at the top to pack the program you are using into one setup file
+  (EventStudio_Setup.exe). You only choose where to save it.
+  With "Include the current brand and event settings and images" on, the brand name, event
+  name, logos, background, sound and time settings go along, and the installed copy starts
+  looking exactly like your screen.
+  Take the setup file to the event computer, run it and press "Install". "Browse..." changes
+  the install folder; the desktop shortcut and the Start-menu entry can be switched off.
+  Settings already saved on that computer are kept. Tick "Replace with the settings in the
+  setup file" to use the ones from the setup file; the old ones are then kept in the
+  previous-settings folder inside the install folder.
+  A new version is installed into the same folder again. Close the timer first if it is open.
+  If Windows shows a "Windows protected your PC" window when you first open a setup file that
+  came over the internet, press "More info" and then "Run anyway". Windows shows this for every
+  program that is not signed.
+
+Uninstalling
+  Uninstall "Event Studio" in Windows Settings > Apps > Installed apps, or press "Uninstall
+  Event Studio" in the Start menu. You choose whether to keep or delete your settings and
+  images. If you keep them, they are used again when you reinstall. Other files you put into
+  the install folder yourself are never deleted.
+
+Audience window
+  "Audience window" opens a separate window; move it to the projector or another monitor.
+  In that window F11 is fullscreen and Esc goes back to a window.
+  The editor's "Fullscreen" button can be used as well.
+
+Shortcuts (while the app window is selected)
+  Space  start / pause
+  1 / 2 / 3  circle / bar / digits
+  R  reset (asks first)
+  Q  switch to Q&A (if Q&A is on)
+  F11  fullscreen
+  Esc  leave fullscreen
+  The timer shortcuts do not act while you are typing text.
+
+Files and storage
+  PNG, JPG, WebP and BMP images and WAV/MP3 end sounds can be used.
+  Images may be up to 40 MB and 8192 px on either side.
+  A chosen image is copied into this app's assets folder as PNG; the original is not changed.
+  Settings are saved automatically to settings.json beside the app; the previous state stays in
+  settings.backup.json.
+  After installing, that place is the install folder (usually AppData\Local\Programs\Event
+  Studio in your account).
+  Without installing, use the program in a folder it can write to. Errors show at the bottom
+  of the window.
+  Please use only brand logos and photos you have the right to use.
+
+Verification
+  Rust build and run; the automatic tests for the timer, settings, images, floating-timer
+  buttons, installing/uninstalling and languages all pass.
+  All four languages were drawn for the editor, the floating timer and the setup window to
+  check that no text is broken or cut off.
+  Making a setup file, installing, starting the installed program, installing again and
+  uninstalling were checked with real files inside a temporary folder.
+  (Installing into this computer's real Start menu, desktop and app list happens for the first
+  time when you run the setup file yourself.)
+  The floating timer's circle, bar and digits, clicks passing through empty spots and the
+  buttons appearing and going away were checked on the real, unlocked screen.
+  Pictures of the real circle, bar and digits windows and of a screen with user images were made.
+  It was checked on the real screen that the window behind shows through the floating timer
+  and stays in front when the timer is clicked.
