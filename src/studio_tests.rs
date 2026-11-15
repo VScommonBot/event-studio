@@ -123,3 +123,49 @@ fn spot(frame:&FullOutput,is:impl Fn(&egui::accesskit::Node)->bool)->Option<Pos2
   assert!(spot(&after,|n|n.label()==Some(target.native_name())).is_none(),"the list shuts after the pick");
  }
 }
+// The stage: lines of the header that are left empty give their room to the timer (as in 1.1.0, whose
+// stage was a grid of rows `auto 1fr` with an empty subtitle hidden). Numbers are the design at 850 x 590.
+fn stage_of(brand:bool,event:bool,subtitle:bool,top_logos:Option<f32>)->scene::Stage{scene::layout(Rect::from_min_size(Pos2::ZERO,vec2(850.0,590.0)),1.0,scene::Header{brand,event,subtitle,top_logos})}
+#[test] fn stage_with_every_line_keeps_its_design(){
+ let full=stage_of(true,true,true,None);
+ assert_eq!((full.brand,full.logos,full.event,full.subtitle),(Some(42.0),None,Some(118.0),Some(152.0)));
+ assert!((full.area.top()-173.8).abs()<1e-3&&full.area.bottom()==546.0);assert!((full.area.center().y-0.61*590.0).abs()<1e-3,"the timer is centred at 61 % of the height, as it always was");assert!((full.timer-1.0).abs()<1e-5,"with every line shown the timer has the stage's own scale");
+ // A logo row fits into the top band without moving anything.
+ let logo=stage_of(true,true,true,Some(38.0));assert_eq!(logo.logos,Some(57.0));assert_eq!((logo.event,logo.subtitle,logo.area.top(),logo.timer),(full.event,full.subtitle,full.area.top(),full.timer));
+ // At another size and place everything scales together.
+ let big=scene::layout(Rect::from_min_size(pos2(10.0,20.0),vec2(1700.0,1180.0)),2.0,scene::Header{brand:true,event:true,subtitle:true,top_logos:None});assert_eq!(big.event,Some(20.0+236.0));assert!((big.timer-2.0).abs()<1e-5);
+}
+#[test] fn empty_lines_give_their_room_to_the_timer(){
+ let full=stage_of(true,true,true,None);let no_subtitle=stage_of(true,true,false,None);let no_event=stage_of(true,false,true,None);let brand_only=stage_of(true,false,false,None);let nothing=stage_of(false,false,false,None);
+ // No subtitle: the event name stays where it is and the timer's room starts higher.
+ assert_eq!(no_subtitle.event,full.event);assert_eq!(no_subtitle.subtitle,None);assert!(no_subtitle.area.top()<full.area.top()&&no_subtitle.timer>full.timer);
+ // No event name: the subtitle moves up into its place, and the timer gains more than without a subtitle.
+ assert_eq!(no_event.event,None);assert!(no_event.subtitle.unwrap()<full.event.unwrap());assert!(no_event.timer>no_subtitle.timer);
+ // Neither: the room starts under the brand name. Nothing at all: at the margin, with the largest timer.
+ assert!(brand_only.timer>no_event.timer);assert!(nothing.timer>brand_only.timer);assert_eq!(nothing.area.top(),32.0);
+ // The ring (radius 138.65 and half its 10 px line, at the timer's scale) stays clear of the header and of the status line.
+ for s in [&full,&no_subtitle,&no_event,&brand_only,&nothing]{
+  let header=[s.brand.map(|y|y+10.0),s.event.map(|y|y+18.0),s.subtitle.map(|y|y+9.0)].into_iter().flatten().fold(0.0,f32::max);let ring=143.65*s.timer;
+  assert!(s.area.center().y-ring>header,"{s:?}");assert!(s.area.center().y+ring<s.area.bottom(),"{s:?}");assert_eq!(s.area.bottom(),546.0);
+ }
+}
+#[test] fn stage_without_a_brand_starts_at_the_margin(){
+ // No brand, no event name, a subtitle and a logo at the top: logo at the margin, subtitle under it, the rest for the timer.
+ let s=stage_of(false,false,true,Some(38.0));assert_eq!((s.logos,s.subtitle),(Some(32.0),Some(84.0)));assert!((s.area.top()-105.8).abs()<1e-3&&(s.timer-440.2/372.2).abs()<1e-4);
+ // A tall logo pushes the titles down instead of running into them, and the timer makes room.
+ let tall=stage_of(true,true,true,Some(114.0));assert_eq!((tall.logos,tall.event),(Some(57.0),Some(57.0+114.0+5.0+18.0)));assert!(tall.timer<1.0);
+ // On a narrow stage the ring is never wider than 52 % of it; on a very short one the timer does not vanish.
+ let narrow=scene::layout(Rect::from_min_size(Pos2::ZERO,vec2(300.0,900.0)),300.0/850.0,scene::Header::default());assert!((narrow.timer*138.65*2.0-300.0*0.52).abs()<0.01);
+ let short=scene::layout(Rect::from_min_size(Pos2::ZERO,vec2(850.0,60.0)),0.35,scene::Header{brand:true,event:true,subtitle:true,top_logos:Some(114.0)});assert!(short.timer>=0.35*0.25&&short.area.height()>=0.0);
+}
+#[test] fn the_drawn_timer_grows_as_the_header_empties(){
+ let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);
+ let draw=|s:&Settings|{let mut out=Rect::NOTHING;let _=ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,vec2(850.0,590.0))),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::new()).show(ctx,|ui|{let v=Clock::new(300.0).view(0.0,60.0,false,true,false);out=scene::render(ui.painter(),ui.max_rect(),s,&v,&HashMap::new(),false,false);});});out};
+ for mode in [Mode::Circle,Mode::Bar,Mode::Number]{
+  let mut s=Settings::default();s.mode=mode.clone();assert!(!s.brand.is_empty()&&!s.event.is_empty()&&!s.subtitle.is_empty());let full=draw(&s);
+  s.event.clear();let no_event=draw(&s);s.subtitle.clear();let no_titles=draw(&s);s.brand.clear();let bare=draw(&s);
+  assert!(no_event.height()>full.height()&&no_titles.height()>no_event.height()&&bare.height()>no_titles.height(),"{mode:?}: {full:?} {no_event:?} {no_titles:?} {bare:?}");
+  assert!(bare.top()>=32.0&&bare.bottom()<=546.0,"{mode:?}: {bare:?}");
+  s.event="   ".into();s.subtitle=" ".into();assert_eq!(draw(&s),bare,"a line of spaces counts as empty");
+ }
+}

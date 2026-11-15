@@ -5,6 +5,7 @@ Getting started
   desktop or in the Start menu. No administrator rights or internet connection are needed.
   Without installing: you can also just run EventStudio.exe.
   On the Brand tab, enter the brand name, the event name and the subtitle.
+  A field you leave empty takes no room on the screen, and the timer is drawn that much larger.
   "Choose image" puts in your logo, a partner logo and a background.
   The settings panel scrolls down.
 
