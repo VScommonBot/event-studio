@@ -233,7 +233,7 @@ fn timer(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, status: &str, s
         Mode::Circle => {
             // .viz-circle: min(94cqh, 84cqw), r 92 and stroke 9 on a 200 box.
             let d = (c.height() * 0.94).min(c.width() * 0.84);
-            let center = c.center();
+            let center = on_pixels(p, c.center());
             let r = d * 92.0 / 200.0;
             let sw = d * 9.0 / 200.0;
             ring(p, center, r, sw + 2.0, HALO.gamma_multiply(0.6));

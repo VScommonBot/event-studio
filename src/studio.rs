@@ -47,6 +47,8 @@ fn bold()->FontFamily{FontFamily::Name("bold".into())}
 /// A ring whose line is centred on radius `r`, so an arc drawn at `r` lies exactly on it.
 /// (`circle_stroke` puts the whole line outside the radius instead.)
 fn ring(p:&Painter,c:Pos2,r:f32,width:f32,color:Color32){let n=180;let pts=(0..n).map(|i|{let a=std::f32::consts::TAU*i as f32/n as f32;c+vec2(a.cos(),a.sin())*r}).collect();p.add(Shape::closed_line(pts,Stroke::new(width,color)));}
+/// `at` moved onto the nearest whole pixel: a ring drawn around it gets the same edge on every side.
+fn on_pixels(p:&Painter,at:Pos2)->Pos2{let ppp=p.ctx().pixels_per_point();pos2((at.x*ppp).round()/ppp,(at.y*ppp).round()/ppp)}
 #[derive(Clone,Serialize,Deserialize,PartialEq,Debug)] enum Mode{Circle,Bar,Number}
 #[derive(Clone,Serialize,Deserialize)] #[serde(default)]
 struct Settings{

@@ -78,7 +78,7 @@ pub(super) fn render(p:&Painter,rect:Rect,s:&Settings,v:&timer::View,textures:&H
  let timer_label=if qna{"Q&A"}else if s.count_up{"ELAPSED TIME"}else{"TIME REMAINING"};
  let timer_rect=match s.mode{
   Mode::Circle=>{
-   let radius=RING_RADIUS*k;let width=10.0*k;
+   let center=on_pixels(&p,center);let radius=RING_RADIUS*k;let width=10.0*k;
    ring(&p,center,radius,width,Color32::from_rgb(41,58,64));
    let steps=180;let angle=std::f32::consts::TAU*v.fill;
    if v.fill>=0.999{ring(&p,center,radius,width,color);}else if angle>0.0{let pts=(0..=steps).map(|i|{let t=-std::f32::consts::FRAC_PI_2+angle*i as f32/steps as f32;center+vec2(t.cos(),t.sin())*radius}).collect();p.add(Shape::line(pts,Stroke::new(width,color)));}

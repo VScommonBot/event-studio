@@ -169,3 +169,12 @@ fn stage_of(brand:bool,event:bool,subtitle:bool,top_logos:Option<f32>)->scene::S
   s.event="   ".into();s.subtitle=" ".into();assert_eq!(draw(&s),bare,"a line of spaces counts as empty");
  }
 }
+// The ring's middle is put on a whole pixel (here at 1.5 pixels per point), so its edge is drawn alike on every side.
+#[test] fn a_ring_is_centred_on_a_whole_pixel(){
+ let ctx=Context::default();ctx.set_pixels_per_point(1.5);let mut got=Vec::new();
+ for _ in 0..2{let _=ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,vec2(300.0,200.0))),..Default::default()},|ctx|{CentralPanel::default().show(ctx,|ui|{got=[pos2(10.2,7.9),pos2(469.67,477.55),pos2(8.0,4.0)].map(|at|on_pixels(ui.painter(),at)).to_vec();});});}
+ for(at,want)in got.iter().zip([pos2(10.0,8.0),pos2(470.0,477.33334),pos2(8.0,4.0)]){
+  assert!((at.x-want.x).abs()<1e-3&&(at.y-want.y).abs()<1e-3,"{at:?} {want:?}");
+  assert!(((at.x*1.5).round()-at.x*1.5).abs()<1e-3&&((at.y*1.5).round()-at.y*1.5).abs()<1e-3,"{at:?} is not on a whole pixel");
+ }
+}

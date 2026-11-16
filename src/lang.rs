@@ -8,9 +8,10 @@
 //! language, with a lookup that also falls back to the Korean table; its English wording is
 //! kept where the same text exists there.
 //!
-//! Which language a first start uses follows Windows, as setup programs commonly do: the
-//! Windows display language (GetUserDefaultUILanguage), matched on the primary language when
-//! the exact language has no table here.
+//! Which language a first start uses follows Windows, the way programs with a table of
+//! languages commonly pick theirs: the Windows display language (GetUserDefaultUILanguage),
+//! first the table written for exactly that language, then the first one for the same primary
+//! language, and English when there is neither.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
@@ -27,13 +28,11 @@ pub enum Lang {
     Ja,
 }
 
-/// Only the primary language, the low 10 bits of a Windows language id, has to match (so
-/// zh-TW gets the Chinese table and en-GB the English one).
+/// The primary language is the low 10 bits of a Windows language id.
 const PRIMARY_LANGUAGE: u16 = 0x3ff;
-/// Windows' primary language ids.
-const KOREAN: u16 = 0x12;
-const CHINESE: u16 = 0x04;
-const JAPANESE: u16 = 0x11;
+/// The Windows language each table was written for (ko-KR, en-US, zh-CN, ja-JP), in the order
+/// they are looked through.
+const WINDOWS_IDS: [(u16, Lang); 4] = [(0x0412, Lang::Ko), (0x0409, Lang::En), (0x0804, Lang::Zh), (0x0411, Lang::Ja)];
 
 /// A key can name two different things ("제거": take an image out, or uninstall). Then the
 /// second one is written `"제거\u{1}uninstall"`: what follows the mark only tells them apart
@@ -67,14 +66,13 @@ impl Lang {
         Lang::ALL.into_iter().find(|l| l.code().eq_ignore_ascii_case(code.trim()))
     }
 
-    /// The language for a Windows language id; English for every language without a table here.
+    /// The language for a Windows language id: the table written for exactly that id, else the
+    /// first one for the same primary language (zh-TW and zh-HK get the Chinese table, en-GB
+    /// the English one), else English.
     pub fn from_windows(id: u16) -> Lang {
-        match id & PRIMARY_LANGUAGE {
-            KOREAN => Lang::Ko,
-            CHINESE => Lang::Zh,
-            JAPANESE => Lang::Ja,
-            _ => Lang::En,
-        }
+        let exact = WINDOWS_IDS.iter().find(|(known, _)| *known == id);
+        let primary = || WINDOWS_IDS.iter().find(|(known, _)| known & PRIMARY_LANGUAGE == id & PRIMARY_LANGUAGE);
+        exact.or_else(primary).map_or(Lang::En, |(_, lang)| *lang)
     }
 
     /// The language Windows itself is shown in.
@@ -169,8 +167,14 @@ mod tests {
 
     #[test]
     fn windows_language_ids_map_to_the_four_languages() {
-        // ko-KR, en-US, en-GB, zh-CN, zh-TW, ja-JP, de-DE.
-        let cases = [(0x0412, Lang::Ko), (0x0409, Lang::En), (0x0809, Lang::En), (0x0804, Lang::Zh), (0x0404, Lang::Zh), (0x0411, Lang::Ja), (0x0407, Lang::En)];
+        // The four the tables were written for (ko-KR, en-US, zh-CN, ja-JP); then the same primary
+        // language under another id (en-GB, zh-TW, zh-HK, zh-SG); then languages without a table
+        // (de-DE, es-ES, fr-FR) and no id at all, which get English.
+        let cases = [
+            (0x0412, Lang::Ko), (0x0409, Lang::En), (0x0804, Lang::Zh), (0x0411, Lang::Ja),
+            (0x0809, Lang::En), (0x0404, Lang::Zh), (0x0c04, Lang::Zh), (0x1004, Lang::Zh),
+            (0x0407, Lang::En), (0x0c0a, Lang::En), (0x040c, Lang::En), (0x0000, Lang::En),
+        ];
         for (id, lang) in cases {
             assert_eq!(Lang::from_windows(id), lang, "{id:#06x}");
         }
