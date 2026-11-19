@@ -529,10 +529,13 @@ const DIGIT_FACES:&[Face]=&[("/System/Library/Fonts/Helvetica.ttc",Pick::Like("H
 fn face_like(bytes:&[u8],part:&str,weight:u16)->Option<u32>{
  (0..ttf_parser::fonts_in_collection(bytes).unwrap_or(1)).filter_map(|index|{
   let face=ttf_parser::Face::parse(bytes,index).ok()?;if face.is_italic()||face.is_oblique(){return None;}
-  let named=part.is_empty()||face.names().into_iter().any(|name|name.name_id==ttf_parser::name_id::POST_SCRIPT_NAME&&name.to_string().is_some_and(|text|text.contains(part)));
+  let named=part.is_empty()||postscript_names(&face).iter().any(|name|name.contains(part));
   named.then(||((face.weight().to_number() as i32-weight as i32).abs(),index))
  }).min().map(|(_,index)|index)
 }
+/// A face's PostScript names. They are plain letters; a font may keep them as two-byte text (which
+/// ttf-parser reads) or, in the old Macintosh way, one byte a letter.
+fn postscript_names(face:&ttf_parser::Face)->Vec<String>{face.names().into_iter().filter(|name|name.name_id==ttf_parser::name_id::POST_SCRIPT_NAME).map(|name|name.to_string().unwrap_or_else(||String::from_utf8_lossy(name.name).into_owned())).collect()}
 /// A font of the system (Windows' font folder; on macOS the file's whole path is given). A file is
 /// read once and kept for as long as the program runs, so switching languages back and forth
 /// neither reads nor holds it again.

@@ -1,12 +1,14 @@
 # Third-party notices
 
-Event Studio is built with the open-source libraries below (the Windows build, from `Cargo.lock`).
+Event Studio is built with the open-source libraries below (the Windows build, from `Cargo.lock`;
+those the macOS build adds are listed after them).
 Each is used under the licence its authors name; the licence texts are in each library's
 repository and in its package on [crates.io](https://crates.io).
 
 The fonts built into the program come with egui (`epaint_default_fonts`): Ubuntu Light (Ubuntu Font
 Licence 1.0), Hack (MIT), Noto Emoji (SIL Open Font License 1.1) and emoji-icon-font (MIT). Korean,
-Chinese and Japanese text is drawn with the fonts Windows itself has; none of those is part of the program.
+Chinese and Japanese text is drawn with the fonts Windows or macOS itself has; none of those is part of
+the program.
 
 | Library | Version | Licence | Source |
 |---|---|---|---|
@@ -173,3 +175,57 @@ Chinese and Japanese text is drawn with the fonts Windows itself has; none of th
 | zmij | 1.0.23 | MIT | https://github.com/dtolnay/zmij |
 | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib | https://github.com/etemesi254/zune-image |
 | zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib | https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg |
+
+## macOS
+
+The macOS build uses these in addition (from `cargo tree --target aarch64-apple-darwin`; the libraries
+above that are for Windows only are not part of it).
+
+| Library | Version | Licence | Source |
+|---|---|---|---|
+| accesskit_macos | 0.18.1 | MIT OR Apache-2.0 | https://github.com/AccessKit/accesskit |
+| bindgen | 0.72.1 | BSD-3-Clause | https://github.com/rust-lang/rust-bindgen |
+| block2 | 0.5.1 | MIT | https://github.com/madsmtm/objc2 |
+| block2 | 0.6.2 | MIT | https://github.com/madsmtm/objc2 |
+| cexpr | 0.6.0 | Apache-2.0/MIT | https://github.com/jethrogb/rust-cexpr |
+| cgl | 0.3.2 | MIT / Apache-2.0 | https://github.com/servo/cgl-rs |
+| clang-sys | 1.9.1 | Apache-2.0 | https://github.com/KyleMayes/clang-sys |
+| core-foundation | 0.9.4 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
+| core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
+| core-graphics | 0.23.2 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
+| core-graphics-types | 0.1.3 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
+| coreaudio-rs | 0.11.3 | MIT/Apache-2.0 | https://github.com/RustAudio/coreaudio-rs.git |
+| coreaudio-sys | 0.2.18 | MIT | https://github.com/RustAudio/coreaudio-sys.git |
+| crossbeam-channel | 0.5.17 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
+| crossbeam-utils | 0.8.23 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
+| dispatch | 0.2.0 | MIT | http://github.com/SSheldon/rust-dispatch |
+| dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
+| either | 1.19.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/either |
+| foreign-types | 0.5.0 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
+| foreign-types-macros | 0.2.4 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
+| foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
+| glob | 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/glob |
+| global-hotkey | 0.10.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/global-hotkey |
+| itertools | 0.13.0 | MIT OR Apache-2.0 | https://github.com/rust-itertools/itertools |
+| keyboard-types | 0.8.3 | MIT OR Apache-2.0 | https://github.com/rust-windowing/keyboard-types |
+| libc | 0.2.191 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
+| mach2 | 0.4.3 | BSD-2-Clause OR MIT OR Apache-2.0 | https://github.com/JohnTitor/mach2 |
+| minimal-lexical | 0.2.1 | MIT/Apache-2.0 | https://github.com/Alexhuszagh/minimal-lexical |
+| nom | 7.1.3 | MIT | https://github.com/Geal/nom |
+| objc-sys | 0.3.5 | MIT | https://github.com/madsmtm/objc2 |
+| objc2 | 0.5.3 | MIT | https://github.com/madsmtm/objc2 |
+| objc2 | 0.6.5 | MIT | https://github.com/madsmtm/objc2 |
+| objc2-app-kit | 0.2.2 | MIT | https://github.com/madsmtm/objc2 |
+| objc2-app-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
+| objc2-core-foundation | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
+| objc2-core-graphics | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
+| objc2-encode | 4.1.0 | MIT | https://github.com/madsmtm/objc2 |
+| objc2-foundation | 0.2.2 | MIT | https://github.com/madsmtm/objc2 |
+| objc2-foundation | 0.3.2 | MIT | https://github.com/madsmtm/objc2 |
+| regex | 1.13.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
+| regex-automata | 0.4.18 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
+| regex-syntax | 0.8.11 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex |
+| rustc-hash | 2.1.3 | Apache-2.0 OR MIT | https://github.com/rust-lang/rustc-hash |
+| shlex | 1.3.0 | MIT OR Apache-2.0 | https://github.com/comex/rust-shlex |
+| thiserror | 2.0.21 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror |
+| thiserror-impl | 2.0.21 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror |

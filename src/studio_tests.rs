@@ -61,8 +61,10 @@ fn wait_of(app:&Studio)->f64{app.next_frame_in().expect("a frame is due").as_sec
 }
 #[test] fn the_floating_timer_a_drag_and_a_check_keep_their_own_pace(){
  // The floating timer is put back on top once a second, and blinks twice a second at the end.
- let mut app=rested("frames-test");app.overlay=true;app.last_topmost=app.now();let wait=wait_of(&app);assert!(wait>0.5&&wait<=TOPMOST_EVERY+0.01,"{wait}");
- app.flash_since=Some(Instant::now());let wait=wait_of(&app);assert!(wait>0.2&&wait<=0.51,"{wait}");
+ // (On macOS it also follows the pointer, twenty times a second.)
+ let most=|usual:f64|if win::FOLLOWS_POINTER{POINTER_POLL}else{usual}+0.01;let least=|usual:f64|if win::FOLLOWS_POINTER{0.04}else{usual};
+ let mut app=rested("frames-test");app.overlay=true;app.last_topmost=app.now();let wait=wait_of(&app);assert!(wait>least(0.5)&&wait<=most(TOPMOST_EVERY),"{wait}");
+ app.flash_since=Some(Instant::now());let wait=wait_of(&app);assert!(wait>least(0.2)&&wait<=most(0.5),"{wait}");
  // Every frame: a drag, a window being placed or settling, a check's fixed state.
  let mut app=rested("frames-test");app.gesture=Some(Gesture{kind:GestureKind::Move,cursor:(0,0),rect:win::PxRect{x:0,y:0,w:360,h:200},moved:false});assert_eq!(app.next_frame_in(),Some(FRAME));
  let mut app=rested("frames-test");app.geometry=Some((win::PxRect{x:0,y:0,w:360,h:200},app.frames));assert_eq!(app.next_frame_in(),Some(FRAME));
@@ -171,9 +173,21 @@ fn ring_of(solid:&[overlay::Solid])->(Pos2,f32){solid.iter().find_map(|a|match a
  assert_eq!(face_like(b"not a font at all","",400),None);
 }
 // On a Mac every language has to find its fonts: the lists name macOS' own files.
+/// What a folder of fonts holds, face by face: printed when a font is not found, to see what this macOS has.
+#[cfg(target_os="macos")] fn fonts_in(folder:&str)->String{
+ let mut files:Vec<PathBuf>=std::fs::read_dir(folder).map(|list|list.flatten().map(|entry|entry.path()).collect()).unwrap_or_default();files.sort();
+ files.iter().filter(|file|file.extension().is_some_and(|e|e=="ttc"||e=="ttf"||e=="otf")).map(|file|{
+  let bytes=std::fs::read(file).unwrap_or_default();let count=ttf_parser::fonts_in_collection(&bytes).unwrap_or(1);
+  let faces:Vec<String>=(0..count).map(|index|match ttf_parser::Face::parse(&bytes,index){Ok(face)=>format!("{index}:{:?}/{}{}",postscript_names(&face),face.weight().to_number(),if face.is_italic()||face.is_oblique(){"/slanted"}else{""}),Err(e)=>format!("{index}:unreadable ({e})")}).collect();
+  format!("{} ({} bytes): {}\n",file.display(),bytes.len(),faces.join(" "))
+ }).collect()
+}
 #[cfg(target_os="macos")] #[test] fn every_language_finds_its_fonts_on_macos(){
+ let inventory=||format!("{}{}",fonts_in("/System/Library/Fonts"),fonts_in("/System/Library/Fonts/Supplemental"));
  for language in Lang::ALL{let(regular,heavy)=language_faces(language);
-  for(kind,faces)in[("regular",regular),("bold",heavy)]{let found=faces.iter().find(|face|system_font(**face).is_some());eprintln!("{language:?} {kind}: {found:?}");assert!(found.is_some(),"{language:?} {kind}: none of {faces:?}");}}
+  for(kind,faces)in[("regular",regular),("bold",heavy)]{let found=faces.iter().find(|face|system_font(**face).is_some());eprintln!("{language:?} {kind}: {found:?}");assert!(found.is_some(),"{language:?} {kind}: none of {faces:?}\n{}",inventory());
+   // The first of a list is the font the language is meant to have; the others only stand in for it.
+   assert_eq!(found,faces.first(),"{language:?} {kind}: its own font was not found\n{}",inventory());}}
  for(kind,faces)in[("digits",DIGIT_FACES),("wide",WIDE_FACES)]{assert!(faces.iter().any(|face|system_font(*face).is_some()),"{kind}: none of {faces:?}");}
  // A weight is found by name: the bold face of a collection is not its regular one.
  let face=|faces:&[Face]|faces.iter().find_map(|face|system_font(*face).map(|data|(face.0,data.index)));

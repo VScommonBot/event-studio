@@ -121,6 +121,22 @@ Files and storage
   of the window.
   Please use only brand logos and photos you have the right to use.
 
+On macOS
+  Open EventStudio-<version>-macOS.dmg and drag Event Studio to the Applications folder. There is
+  no setup window.
+  The app is not signed, so if macOS refuses to open it the first time, press "Open Anyway" in
+  System Settings > Privacy & Security.
+  Settings, images and error-log.txt are kept in ~/Library/Application Support/Event Studio, not
+  beside the app.
+  Ctrl in the shortcuts is the Control key and Alt the Option key. Control+Command+F also
+  switches fullscreen.
+  A click on the floating timer brings Event Studio forward for a moment; when you let go of the
+  mouse button, the slide software gets the keyboard back.
+  Event Studio stays in the Dock while the timer floats.
+  "Make setup file" is for Windows only. To use the app on another Mac, copy it as it is.
+  To remove it, move the app to the Trash; to remove the settings too, delete the Event Studio
+  folder named above.
+
 Verification
   Rust build and run; the automatic tests for the timer, settings, images, floating-timer
   buttons, installing/uninstalling and languages all pass.
