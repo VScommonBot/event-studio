@@ -598,7 +598,8 @@ pub enum Start {
     /// The timer itself.
     App,
     Exit(i32),
-    Window(Job),
+    /// (Boxed: a job is far larger than the other two.)
+    Window(Box<Job>),
 }
 
 /// Decides what this start is: the timer, a setup or removal window, or a job done without a
@@ -633,7 +634,7 @@ pub fn start(args: &Args) -> Start {
             1
         }
     };
-    let fail = |e: String| if silent { Start::Exit(report(&Err(e))) } else { Start::Window(Job::Problem(e, lang::current())) };
+    let fail = |e: String| if silent { Start::Exit(report(&Err(e))) } else { Start::Window(Box::new(Job::Problem(e, lang::current()))) };
     let places = || match args.value("--sandbox") {
         Some(dir) => Ok(Places::sandbox(Path::new(dir))),
         None => Places::real(),
@@ -669,7 +670,7 @@ pub fn start(args: &Args) -> Start {
             let done = uninstall(Path::new(dir), &places, args.flag("--remove-data"), SILENT_PATIENCE);
             return Start::Exit(report(&done.map(|r| format!("data_kept={}\nleft={}", r.data_kept, r.left.len()))));
         }
-        return Start::Window(Job::Uninstall { dir: PathBuf::from(dir), places, language });
+        return Start::Window(Box::new(Job::Uninstall { dir: PathBuf::from(dir), places, language }));
     }
     let pack = match Pack::open(&me) {
         Ok(Some(pack)) => pack,
@@ -699,7 +700,7 @@ pub fn start(args: &Args) -> Start {
         let done = install(&pack, &places, &o);
         return Start::Exit(report(&done.map(|i| format!("{}\nsettings={:?}", i.exe.display(), i.settings))));
     }
-    Start::Window(Job::Install { pack, places, language })
+    Start::Window(Box::new(Job::Install { pack, places, language }))
 }
 
 #[cfg(all(test, windows))]

@@ -446,11 +446,12 @@ impl Pictures {
 /// The mean colour of what is not transparent in a picture (sRGB 0..1, weighted by opacity) and its
 /// mean opacity, from at most about 260 000 of its pixels.
 fn mean_color(im: &image::RgbaImage) -> ([f32; 3], f32) {
-    let px = im.as_raw().chunks_exact(4);
+    // (Four bytes a pixel.)
+    let (px, _) = im.as_raw().as_chunks::<4>();
     let n = px.len();
     let step = (n / 262_144).max(1);
     let (mut sum, mut alpha, mut count) = ([0.0f64; 3], 0.0f64, 0usize);
-    for p in px.step_by(step) {
+    for p in px.iter().step_by(step) {
         let a = p[3] as f64 / 255.0;
         for i in 0..3 {
             sum[i] += p[i] as f64 / 255.0 * a;
@@ -472,7 +473,9 @@ fn transform_channel(c: u8, multiplier: i32, offset: i32) -> u8 {
 /// red, green and blue, multiplier 256 and offset 0 on the alpha.
 fn white_copy(im: &image::RgbaImage) -> Vec<u8> {
     im.as_raw()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| {
             [transform_channel(p[0], 0, 255), transform_channel(p[1], 0, 255), transform_channel(p[2], 0, 255), transform_channel(p[3], 256, 0)]
         })

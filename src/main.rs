@@ -21,7 +21,7 @@ fn main() {
     let ended = match setup::start(&args) {
         setup::Start::App => studio::run(),
         setup::Start::Exit(code) => std::process::exit(code),
-        setup::Start::Window(job) => setup_ui::run(job, args.value("--screenshot").map(Into::into), args.value("--demo").map(str::to_string)),
+        setup::Start::Window(job) => setup_ui::run(*job, args.value("--screenshot").map(Into::into), args.value("--demo").map(str::to_string)),
     };
     if let Err(e) = ended {
         report::could_not_start(&e, quiet);
