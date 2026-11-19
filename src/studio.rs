@@ -82,7 +82,7 @@ struct Settings{
 }
 const SCHEMA:u32=2;
 impl Default for Settings{fn default()->Self{Self{
- brand:"YOUR BRAND".into(),event:FIRST_EVENT.into(),subtitle:"2026  ·  INSPIRATION SESSION".into(),mode:Mode::Circle,duration:timer::DEFAULT_SECONDS,warning:timer::DEFAULT_WARNING,
+ brand:"YOUR BRAND".into(),event:FIRST_EVENT.into(),subtitle:format!("{}  ·  INSPIRATION SESSION",crate::report::this_year()),mode:Mode::Circle,duration:timer::DEFAULT_SECONDS,warning:timer::DEFAULT_WARNING,
  qna_enabled:false,qna_duration:timer::DEFAULT_SECONDS,carry:true,count_up:false,overtime:true,seconds_only:false,background:String::new(),logo:String::new(),logo2:String::new(),dim:0.55,cover:true,logo_position:2,logo_size:100.0,logo_tone:Tone::Auto,accent:[132,226,190],sound:true,volume:0.8,sound_file:String::new(),pin:false,
  overlay_start:false,overlay_backdrop:0.0,overlay_scene:false,overlay_rect:None,overlay_top_right:true,hotkeys:false,schema:0,language:Lang::Ko}}}
 impl Settings{
@@ -173,6 +173,24 @@ fn load_image(path:&Path)->Result<image::RgbaImage,String>{
  let meta=std::fs::metadata(path).map_err(|e|e.to_string())?;if meta.len()>40*1024*1024{return Err(t("이미지는 40MB 이하로 선택해주세요.").into());}
  let dims=image::image_dimensions(path).map_err(|e|e.to_string())?;if dims.0>8192||dims.1>8192{return Err(t("이미지는 가로·세로 8192px 이하로 선택해주세요.").into());}
  image::open(path).map(|i|i.to_rgba8()).map_err(|e|e.to_string())
+}
+/// The longest side a picture is kept at. A background fills a 4K screen at 3840; a logo, drawn at
+/// most about a thousand pixels wide (at 300 % on such a screen), has room to spare at 2048. A
+/// larger picture is made smaller when it is chosen, so that it is quick to save and to open
+/// again; one that an earlier build saved large is made smaller in memory each time it is opened.
+const BACKGROUND_SIDE:u32=3840;
+const LOGO_SIDE:u32=2048;
+/// The slots of the three pictures: 0 the background, 1 the brand's logo, 2 the partner's.
+fn side_for(slot:usize)->u32{if slot==0{BACKGROUND_SIDE}else{LOGO_SIDE}}
+/// The picture no longer than `side` on its longer side, in its own proportions. Colours are
+/// averaged by how opaque they are, so the see-through surroundings of a logo do not tint its edge.
+fn fit_within(mut im:image::RgbaImage,side:u32)->image::RgbaImage{
+ let(w,h)=im.dimensions();let longer=w.max(h);if longer<=side{return im;}
+ let scaled=|v:u32|((v as f64*side as f64/longer as f64).round() as u32).max(1);
+ for p in im.pixels_mut(){let a=p[3] as u32;for c in 0..3{p[c]=((p[c] as u32*a+127)/255) as u8;}}
+ let mut small=image::imageops::thumbnail(&im,scaled(w),scaled(h));
+ for p in small.pixels_mut(){let a=p[3] as u32;if a>0{for c in 0..3{p[c]=((p[c] as u32*255+a/2)/a).min(255) as u8;}}}
+ small
 }
 /// A logo that stands out from what is behind it by less than this contrast ratio is lost on it, and
 /// 자동 shows it white. (Red on the dark stage, about 3 : 1, keeps its colour; navy, about 1.2 : 1, and
@@ -265,9 +283,19 @@ impl Studio{
  fn started(&self)->bool{self.clock.qna||self.clock.elapsed(self.now())>0.0}
  fn controls_forced(&self)->bool{self.force_controls||self.pulse.is_some_and(|(from,to)|(from..to).contains(&self.now()))}
  fn control_state(&self)->controls::State{controls::State{running:self.clock.running(),started:self.started(),accent:self.s.accent()}}
- fn reload_images(&mut self,ctx:&Context){self.textures=Pictures::default();for(slot,name)in [&self.s.background,&self.s.logo,&self.s.logo2].into_iter().enumerate(){if name.is_empty(){continue;}match load_image(&self.root.join(name)){Ok(im)=>{let size=[im.width() as usize,im.height() as usize];let pics=&mut self.textures;pics.own.insert(name.clone(),ctx.load_texture(name,ColorImage::from_rgba_unmultiplied(size,im.as_raw()),TextureOptions::LINEAR));pics.mean.insert(name.clone(),mean_color(&im));
-   if slot>0{pics.white.insert(name.clone(),ctx.load_texture(format!("{name} (white)"),ColorImage::from_rgba_unmultiplied(size,&white_copy(&im)),TextureOptions::LINEAR));}},Err(e)=>self.status=tf!("이미지 불러오기 실패: {0}",e)}}}
- fn pick_image(&mut self,ctx:&Context,slot:usize){if let Some(p)=rfd::FileDialog::new().set_title(t("사용할 이미지 선택")).add_filter(t("이미지"),&["png","jpg","jpeg","webp","bmp"]).pick_file(){match load_image(&p){Ok(im)=>{let name=format!("assets/{}.png",["background","brand-logo","partner-logo"][slot]);let dest=self.root.join(&name);let result=std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e|e.to_string()).and_then(|_|im.save(&dest).map_err(|e|e.to_string()));match result{Ok(())=>{match slot{0=>self.s.background=name,1=>self.s.logo=name,_=>self.s.logo2=name};self.reload_images(ctx);self.status=t("이미지를 적용했습니다").into();},Err(e)=>self.status=tf!("이미지 저장 실패: {0}",e)}},Err(e)=>self.status=tf!("이미지 선택 실패: {0}",e)}}}
+ fn picture_name(&self,slot:usize)->&String{match slot{0=>&self.s.background,1=>&self.s.logo,_=>&self.s.logo2}}
+ /// Puts a picture on screen for its slot: its texture, its mean colour and, for a logo, its white copy.
+ fn show_image(&mut self,ctx:&Context,slot:usize,im:&image::RgbaImage){
+  let name=self.picture_name(slot).clone();let size=[im.width() as usize,im.height() as usize];let pics=&mut self.textures;
+  pics.own.insert(name.clone(),ctx.load_texture(&name,ColorImage::from_rgba_unmultiplied(size,im.as_raw()),TextureOptions::LINEAR));pics.mean.insert(name.clone(),mean_color(im));
+  if slot>0{pics.white.insert(name.clone(),ctx.load_texture(format!("{name} (white)"),ColorImage::from_rgba_unmultiplied(size,&white_copy(im)),TextureOptions::LINEAR));}
+ }
+ /// Opens the saved picture of one slot; the other two stay as they are.
+ fn reload_image(&mut self,ctx:&Context,slot:usize){let name=self.picture_name(slot);if name.is_empty(){return;}match load_image(&self.root.join(name)){Ok(im)=>self.show_image(ctx,slot,&fit_within(im,side_for(slot))),Err(e)=>self.status=tf!("이미지 불러오기 실패: {0}",e)}}
+ fn reload_images(&mut self,ctx:&Context){self.textures=Pictures::default();for slot in 0..3{self.reload_image(ctx,slot);}}
+ /// A picture the person chose: made no larger than its slot needs, saved as PNG in `assets`, and
+ /// shown from what is in memory (the other pictures are not read again).
+ fn pick_image(&mut self,ctx:&Context,slot:usize){if let Some(p)=rfd::FileDialog::new().set_title(t("사용할 이미지 선택")).add_filter(t("이미지"),&["png","jpg","jpeg","webp","bmp"]).pick_file(){match load_image(&p){Ok(im)=>{let im=fit_within(im,side_for(slot));let name=format!("assets/{}.png",["background","brand-logo","partner-logo"][slot]);let dest=self.root.join(&name);let result=std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e|e.to_string()).and_then(|_|im.save(&dest).map_err(|e|e.to_string()));match result{Ok(())=>{match slot{0=>self.s.background=name,1=>self.s.logo=name,_=>self.s.logo2=name};self.show_image(ctx,slot,&im);self.status=t("이미지를 적용했습니다").into();},Err(e)=>self.status=tf!("이미지 저장 실패: {0}",e)}},Err(e)=>self.status=tf!("이미지 선택 실패: {0}",e)}}}
  fn save(&mut self){if self.shot.is_some(){return;}let result=serde_json::to_string_pretty(&self.s).map_err(|e|e.to_string()).and_then(|text|{let path=self.root.join("settings.json");let tmp=self.root.join("settings.pending.json");std::fs::write(&tmp,text).map_err(|e|e.to_string())?;
   // The file about to be replaced becomes the backup. One that cannot be read as settings does not:
   // the backup may then be the only good copy (`load_settings` opened from it), so it stays, and
@@ -323,7 +351,11 @@ impl Studio{
   let label=if self.clock.running(){t("Ⅱ   일시정지")}else if self.clock.elapsed(self.now())>0.0{t("▶   이어하기")}else{t("▶   시작하기")};if ui.add_sized([153.0,46.0],Button::new(RichText::new(label).color(BG).strong()).fill(self.s.accent()).corner_radius(9)).clicked(){self.toggle();}if ui.add_sized([84.0,46.0],Button::new(t("초기화"))).clicked(){if self.clock.elapsed(self.now())>0.0{self.confirm_reset=true}else{self.reset();}}ui.add_space(8.0);
   for(txt,delta)in[(t("−1분"),-60.0),(t("−10초"),-10.0),(t("+10초"),10.0),(t("+1분"),60.0)]{if ui.button(txt).clicked(){self.adjust(delta);}}
   if self.s.qna_enabled&&ui.add_enabled(!self.clock.qna,Button::new(t("Q&A 전환"))).clicked(){self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}
-  ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("SPACE  시작 / 정지")).color(MUTED).size(11.0));});});ui.add_space(4.0);ui.horizontal(|ui|{ui.label(RichText::new(&self.status).color(MUTED).size(11.0));ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("로컬 저장 · 인터넷 연결 불필요")).color(MUTED).size(11.0));});});});}
+  ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("SPACE  시작 / 정지")).color(MUTED).size(11.0));});});ui.add_space(4.0);ui.horizontal(|ui|{ui.label(RichText::new(&self.status).color(MUTED).size(11.0));ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("로컬 저장 · 인터넷 연결 불필요")).color(MUTED).size(11.0));
+   if ui.link(RichText::new(t("오픈소스 라이선스")).size(11.0)).on_hover_text(t("함께 쓰인 오픈소스 라이브러리와 글꼴의 라이선스를 파일로 저장해 보여 줍니다")).clicked(){self.show_licenses();}});});});}
+ /// Writes the licences of the libraries and fonts the program is built with beside the settings
+ /// and shows the file in its folder: they are part of every copy of the program, installed or not.
+ fn show_licenses(&mut self){let file=self.root.join(setup::LICENSES_NAME);match std::fs::write(&file,setup::LICENSES){Ok(())=>{setup::show_in_folder(&file);self.status=tf!("오픈소스 라이선스를 저장했습니다: {0}",file.display());},Err(e)=>self.status=tf!("저장 실패: {0}",e)}}
  fn inspector(&mut self,ctx:&Context){SidePanel::right("inspector").resizable(false).exact_width(340.0).frame(Frame::new().fill(PANEL).inner_margin(Margin::symmetric(22,20))).show(ctx,|ui|{
   ui.horizontal(|ui|{ui.heading(t("화면 설정"));ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new("LIVE").size(10.0).color(self.s.accent()));});});ui.label(RichText::new(t("변경하면 미리보기에 바로 반영됩니다")).color(MUTED).size(11.0));ui.add_space(5.0);ui.horizontal(|ui|{ui.spacing_mut().button_padding=vec2(9.0,9.0);ui.spacing_mut().item_spacing.x=6.0;ui.selectable_value(&mut self.tab,0,t("브랜드·이미지"));ui.selectable_value(&mut self.tab,1,t("시간·진행"));ui.selectable_value(&mut self.tab,2,t("투명 타이머"));});ui.separator();
   ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui|{match self.tab{0=>self.brand_settings(ui,ctx),1=>self.time_settings(ui,ctx),_=>self.floating_settings(ui,ctx)}if self.panel_end{ui.scroll_to_cursor(Some(Align::BOTTOM));}});

@@ -1,7 +1,7 @@
 Event Studio — Branded event timer
 
 Getting started
-  Installed: run EventStudio_Setup.exe and press "Install". Open it with "Event Studio" on the
+  Installed: run EventStudio-<version>-Setup.exe and press "Install". Open it with "Event Studio" on the
   desktop or in the Start menu. No administrator rights or internet connection are needed.
   Without installing: you can also just run EventStudio.exe.
   On the Brand tab, enter the brand name, the event name and the subtitle.
@@ -71,7 +71,7 @@ Floating timer (no background, always on top)
 
 Setup file (installing on another computer)
   Press "Make setup file" at the top to pack the program you are using into one setup file
-  (EventStudio_Setup.exe). You only choose where to save it.
+  (EventStudio-<version>-Setup.exe). You only choose where to save it.
   With "Include the current brand and event settings and images" on, the brand name, event
   name, logos, background, sound and time settings go along, and the installed copy starts
   looking exactly like your screen.
@@ -107,7 +107,8 @@ Shortcuts (while the app window is selected)
 
 Files and storage
   PNG, JPG, WebP and BMP images and WAV/MP3 end sounds can be used.
-  Images may be up to 40 MB and 8192 px on either side.
+  Images may be up to 40 MB and 8192 px on either side. A large one is made smaller when it is
+  copied (to 3840 px on its longer side for the background, 2048 px for a logo).
   A chosen image is copied into this app's assets folder as PNG; the original is not changed.
   Settings are saved automatically to settings.json beside the app; the previous state stays in
   settings.backup.json.
@@ -136,18 +137,3 @@ On macOS
   "Make setup file" is for Windows only. To use the app on another Mac, copy it as it is.
   To remove it, move the app to the Trash; to remove the settings too, delete the Event Studio
   folder named above.
-
-Verification
-  Rust build and run; the automatic tests for the timer, settings, images, floating-timer
-  buttons, installing/uninstalling and languages all pass.
-  All four languages were drawn for the editor, the floating timer and the setup window to
-  check that no text is broken or cut off.
-  Making a setup file, installing, starting the installed program, installing again and
-  uninstalling were checked with real files inside a temporary folder.
-  (Installing into this computer's real Start menu, desktop and app list happens for the first
-  time when you run the setup file yourself.)
-  The floating timer's circle, bar and digits, clicks passing through empty spots and the
-  buttons appearing and going away were checked on the real, unlocked screen.
-  Pictures of the real circle, bar and digits windows and of a screen with user images were made.
-  It was checked on the real screen that the window behind shows through the floating timer
-  and stays in front when the timer is clicked.

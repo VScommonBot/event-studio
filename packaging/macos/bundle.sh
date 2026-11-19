@@ -46,7 +46,7 @@ rm -rf "$ICONS" "$OUT/icon-1024.png"
 # What macOS reads about the app, the guides and the licences.
 sed "s/__VERSION__/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 GUIDES=("사용안내.txt" "Guide.txt" "使用说明.txt" "使い方.txt")
-cp "${GUIDES[@]}" LICENSE THIRD-PARTY-NOTICES.md "$APP/Contents/Resources/"
+cp "${GUIDES[@]}" LICENSE THIRD-PARTY-NOTICES.md THIRD-PARTY-LICENSES.txt "$APP/Contents/Resources/"
 
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
