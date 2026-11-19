@@ -1,4 +1,8 @@
-//! Win32 helpers for the floating timer window (all sizes in physical pixels).
+//! The floating timer's window, as each system needs it: Win32 below, AppKit in win_mac.rs.
+//! All sizes are in the system's own window units (`units_per_point`): physical pixels on
+//! Windows, points on macOS.
+//!
+//! On Windows:
 //!
 //! The floating timer is a chrome-less, transparent window that is put back in front of
 //! everything once a second without ever taking the keyboard. Only its painted parts take
@@ -52,6 +56,31 @@ pub type Key = (u8, u32, u32);
 pub enum HitShape {
     Rect(PxRect),
     Ellipse(PxRect),
+}
+
+impl HitShape {
+    /// Whether a point of the window (from its top-left corner) is on the shape.
+    #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+    pub fn contains(&self, (x, y): (i32, i32)) -> bool {
+        match *self {
+            HitShape::Rect(r) => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h,
+            HitShape::Ellipse(r) => {
+                let (rx, ry) = (r.w as f64 / 2.0, r.h as f64 / 2.0);
+                let (dx, dy) = (x as f64 + 0.5 - (r.x as f64 + rx), y as f64 + 0.5 - (r.y as f64 + ry));
+                rx > 0.0 && ry > 0.0 && (dx / rx).powi(2) + (dy / ry).powi(2) <= 1.0
+            }
+        }
+    }
+}
+
+/// How many window units (`PxRect`) one egui point is. Windows places and sizes windows in
+/// physical pixels; macOS in points, which differ from egui's only by the zoom.
+pub fn units_per_point(ctx: &eframe::egui::Context) -> f32 {
+    if cfg!(target_os = "macos") {
+        ctx.zoom_factor()
+    } else {
+        ctx.pixels_per_point()
+    }
 }
 
 /// The short hotkeys, registered only while the floating timer is up: Ctrl+1 start / pause,
@@ -169,6 +198,19 @@ mod imp {
         Some(unsafe { GetUserDefaultUILanguage() })
     }
 
+    /// (macOS names its language by a code instead.)
+    pub fn locale() -> Option<String> {
+        None
+    }
+
+    /// The window region does all of this on Windows: nothing to follow by hand.
+    pub const FOLLOWS_POINTER: bool = false;
+    pub fn follow_pointer(_: isize) -> Option<(i32, i32)> {
+        None
+    }
+    /// A no-activate window never takes the keyboard on Windows: nothing to hand back.
+    pub fn return_focus() {}
+
     pub fn cursor() -> (i32, i32) {
         let mut p = POINT { x: 0, y: 0 };
         unsafe { GetCursorPos(&mut p) };
@@ -258,13 +300,26 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+#[path = "win_mac.rs"]
+mod imp;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod imp {
     use super::{HitShape, Key, PxRect};
     use crate::lang::t;
     pub fn ui_language() -> Option<u16> {
         None
     }
+    /// The language of the session, as its environment names it (`ko_KR.UTF-8`).
+    pub fn locale() -> Option<String> {
+        ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+    }
+    pub const FOLLOWS_POINTER: bool = false;
+    pub fn follow_pointer(_: isize) -> Option<(i32, i32)> {
+        None
+    }
+    pub fn return_focus() {}
     pub fn window_rect(_: isize) -> Option<PxRect> {
         None
     }
@@ -292,11 +347,13 @@ mod imp {
 
 pub use imp::*;
 
-/// The native window handle (HWND) behind eframe's root window.
+/// The native window behind eframe's root window: its HWND on Windows, its content view
+/// (NSView) on macOS.
 pub fn handle(frame: &eframe::Frame) -> Option<isize> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     match frame.window_handle().ok()?.as_raw() {
         RawWindowHandle::Win32(h) => Some(h.hwnd.get()),
+        RawWindowHandle::AppKit(h) => Some(h.ns_view.as_ptr() as isize),
         _ => None,
     }
 }
@@ -312,6 +369,15 @@ mod tests {
         assert_eq!(top_right(area, 2500, 200, 24).x, 0);
         // Taller than the screen: no top margin.
         assert_eq!(top_right(PxRect { x: 100, y: 50, w: 800, h: 150 }, 360, 200, 24).y, 50);
+    }
+    #[test]
+    fn hit_shapes_know_their_points() {
+        let rect = HitShape::Rect(PxRect { x: 10, y: 20, w: 30, h: 40 });
+        assert!(rect.contains((10, 20)) && rect.contains((39, 59)) && !rect.contains((40, 59)) && !rect.contains((9, 20)));
+        let disc = HitShape::Ellipse(PxRect { x: 0, y: 0, w: 100, h: 100 });
+        assert!(disc.contains((50, 50)) && disc.contains((50, 0)) && disc.contains((99, 50)));
+        assert!(!disc.contains((3, 3)) && !disc.contains((96, 96)) && !disc.contains((120, 50)));
+        assert!(!HitShape::Ellipse(PxRect { x: 0, y: 0, w: 0, h: 10 }).contains((0, 5)));
     }
     #[test]
     fn short_hotkeys_are_ctrl_digits() {

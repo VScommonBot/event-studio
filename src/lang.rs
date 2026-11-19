@@ -75,9 +75,18 @@ impl Lang {
         exact.or_else(primary).map_or(Lang::En, |(_, lang)| *lang)
     }
 
-    /// The language Windows itself is shown in.
+    /// The language for a language code as macOS and other systems name theirs (`ko-KR`,
+    /// `zh-Hans-CN`, `ja_JP.UTF-8`): by its first part, and English for any other.
+    pub fn from_locale(code: &str) -> Lang {
+        let language = code.trim().split(['-', '_', '.', '@']).next().unwrap_or_default();
+        Lang::from_code(language).unwrap_or(Lang::En)
+    }
+
+    /// The language the system itself is shown in: Windows' display language, the first of
+    /// macOS' preferred languages.
     pub fn system() -> Lang {
-        crate::win::ui_language().map_or(Lang::En, Lang::from_windows)
+        let named = || crate::win::locale().map(|code| Lang::from_locale(&code));
+        crate::win::ui_language().map(Lang::from_windows).or_else(named).unwrap_or(Lang::En)
     }
 
     /// Where this language's text is in a row of the table.
@@ -98,6 +107,13 @@ impl<'de> Deserialize<'de> for Lang {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         Ok(Lang::from_code(&String::deserialize(d)?).unwrap_or_default())
     }
+}
+
+/// The first language of the list `defaults read -g AppleLanguages` prints on macOS, one to a
+/// line between brackets, in quotes when it has a hyphen: `(`, `    "ko-KR",`, `    en`, `)`.
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+pub fn first_listed(printed: &str) -> Option<String> {
+    printed.lines().map(|line| line.trim().trim_end_matches(',').trim_matches('"')).find(|code| !code.is_empty() && *code != "(" && *code != ")").map(str::to_string)
 }
 
 static CURRENT: AtomicU8 = AtomicU8::new(0);
@@ -185,6 +201,22 @@ mod tests {
         assert_eq!(serde_json::to_string(&Lang::Zh).unwrap(), "\"zh\"");
         assert_eq!(serde_json::from_str::<Lang>("\"fr\"").unwrap(), Lang::Ko, "an unknown code opens in Korean");
         assert_eq!(Lang::from_code(" EN "), Some(Lang::En));
+    }
+
+    #[test]
+    fn language_codes_of_other_systems_map_to_the_four_languages() {
+        let cases = [
+            ("ko-KR", Lang::Ko), ("ko", Lang::Ko), ("en-KR", Lang::En), ("zh-Hans-CN", Lang::Zh), ("zh-Hant-TW", Lang::Zh),
+            ("ja-JP", Lang::Ja), ("ja_JP.UTF-8", Lang::Ja), ("de-DE", Lang::En), ("C", Lang::En), ("", Lang::En),
+        ];
+        for (code, lang) in cases {
+            assert_eq!(Lang::from_locale(code), lang, "{code:?}");
+        }
+        // What macOS prints for its list of languages.
+        assert_eq!(first_listed("(\n    \"ko-KR\",\n    \"en-KR\"\n)\n").as_deref(), Some("ko-KR"));
+        assert_eq!(first_listed("(\n    en,\n    ja\n)\n").as_deref(), Some("en"));
+        assert_eq!(first_listed("(\n)\n"), None);
+        assert_eq!(first_listed(""), None);
     }
 
     #[test]
@@ -276,7 +308,7 @@ mod tests {
         let keys: HashSet<&str> = TABLE.iter().map(|row| row[0]).collect();
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut checked = 0;
-        for name in ["studio.rs", "scene.rs", "overlay.rs", "controls.rs", "setup.rs", "setup_ui.rs", "pack.rs", "shell.rs", "win.rs", "lang.rs", "main.rs", "timer.rs", "report.rs"] {
+        for name in ["studio.rs", "scene.rs", "overlay.rs", "controls.rs", "setup.rs", "setup_ui.rs", "pack.rs", "shell.rs", "win.rs", "lang.rs", "main.rs", "timer.rs", "report.rs", "win_mac.rs"] {
             let source = std::fs::read_to_string(src.join(name)).unwrap();
             for (text, through) in literals(&source) {
                 if kept.contains(&text.as_str()) && !through {

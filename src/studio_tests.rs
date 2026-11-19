@@ -163,10 +163,27 @@ fn ring_of(solid:&[overlay::Solid])->(Pos2,f32){solid.iter().find_map(|a|match a
  }
 }
 #[test] fn a_missing_or_odd_font_file_is_passed_over(){
- assert!(system_font(("no-such-font.ttf",0)).is_none());
+ assert!(system_font(("no-such-font.ttf",Nth(0))).is_none());assert!(system_font(("no-such-font.ttc",Pick::Like("",400))).is_none());
  // A face a file does not have: the single font file of Malgun Gothic has only face 0.
- if system_font(("malgun.ttf",0)).is_some(){assert!(system_font(("malgun.ttf",1)).is_none());}
- if let Some(collection)=system_font(("msyh.ttc",1)){assert_eq!(collection.index,1);assert!(system_font(("msyh.ttc",9)).is_none());}
+ if system_font(("malgun.ttf",Nth(0))).is_some(){assert!(system_font(("malgun.ttf",Nth(1))).is_none());}
+ if let Some(collection)=system_font(("msyh.ttc",Nth(1))){assert_eq!(collection.index,1);assert!(system_font(("msyh.ttc",Nth(9))).is_none());}
+ // Bytes that are not a font have no face to pick.
+ assert_eq!(face_like(b"not a font at all","",400),None);
+}
+// On a Mac every language has to find its fonts: the lists name macOS' own files.
+#[cfg(target_os="macos")] #[test] fn every_language_finds_its_fonts_on_macos(){
+ for language in Lang::ALL{let(regular,heavy)=language_faces(language);
+  for(kind,faces)in[("regular",regular),("bold",heavy)]{let found=faces.iter().find(|face|system_font(**face).is_some());eprintln!("{language:?} {kind}: {found:?}");assert!(found.is_some(),"{language:?} {kind}: none of {faces:?}");}}
+ for(kind,faces)in[("digits",DIGIT_FACES),("wide",WIDE_FACES)]{assert!(faces.iter().any(|face|system_font(*face).is_some()),"{kind}: none of {faces:?}");}
+ // A weight is found by name: the bold face of a collection is not its regular one.
+ let face=|faces:&[Face]|faces.iter().find_map(|face|system_font(*face).map(|data|(face.0,data.index)));
+ assert_ne!(face(KOREAN_FACES.0),face(KOREAN_FACES.1));
+}
+// A macOS app keeps what it saves in Application Support; a program on its own, beside itself.
+#[test] fn a_macos_app_keeps_its_settings_in_application_support(){
+ let home=Path::new("/Users/someone");
+ assert_eq!(bundle_data_folder(Path::new("/Applications/Event Studio.app/Contents/MacOS"),Some(home)),Some(PathBuf::from("/Users/someone/Library/Application Support/Event Studio")));
+ assert_eq!(bundle_data_folder(Path::new("/Users/someone/tools"),Some(home)),None);assert_eq!(bundle_data_folder(Path::new("/Applications/Event Studio.app/Contents/MacOS"),None),None);
 }
 /// One frame of only the language box, as the editor and the setup window show it.
 fn picker_frame(ctx:&Context,picked:&mut Lang,events:Vec<Event>)->FullOutput{ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,vec2(420.0,320.0))),events,..Default::default()},|ctx|{CentralPanel::default().show(ctx,|ui|language_picker(ui,picked));})}
