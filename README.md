@@ -30,9 +30,15 @@ A **branded timer for events and presentations** on Windows, written in Rust wit
 
 자세한 사용법은 [사용안내.txt](사용안내.txt) · [Guide.txt](Guide.txt) · [使用说明.txt](使用说明.txt) · [使い方.txt](使い方.txt)에 있습니다.
 
+## 내려받기
+
+[Releases](../../releases/latest)에서 **EventStudio-<버전>-Setup.exe**를 받아 실행하고 "설치"를 누르세요
+(관리자 권한 · 인터넷 연결 불필요). 설치하지 않고 쓰려면 **EventStudio-<버전>.exe**를 그대로 실행해도 됩니다.
+서명하지 않은 프로그램이라 Windows가 "Windows의 PC 보호" 창을 띄우면 "추가 정보" → "실행"을 누르세요.
+
 ## 직접 빌드하기
 
-아직 내려받을 수 있는 실행 파일은 올려 두지 않았습니다. [Rust](https://www.rust-lang.org/tools/install)(stable)가 있으면 아래처럼 만들 수 있습니다.
+[Rust](https://www.rust-lang.org/tools/install)(stable)가 있으면 아래처럼 직접 만들 수 있습니다.
 
 ```
 cargo build --release
@@ -107,9 +113,16 @@ digits. A dark logo that would be hard to see on the dark stage is shown in whit
 
 Guides: [Guide.txt](Guide.txt) (English), [사용안내.txt](사용안내.txt), [使用说明.txt](使用说明.txt), [使い方.txt](使い方.txt).
 
+### Download
+
+Get **EventStudio-&lt;version&gt;-Setup.exe** from [Releases](../../releases/latest), run it and press
+"Install" (no administrator rights or internet connection needed), or run **EventStudio-&lt;version&gt;.exe**
+without installing. The program is not code-signed, so Windows may show "Windows protected your
+PC": choose "More info", then "Run anyway".
+
 ### Building
 
-No downloadable program is published yet. With [Rust](https://www.rust-lang.org/tools/install) (stable):
+With [Rust](https://www.rust-lang.org/tools/install) (stable):
 
 ```
 cargo build --release
