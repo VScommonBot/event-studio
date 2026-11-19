@@ -1,0 +1,64 @@
+# Builds and tests Event Studio on Windows and on macOS for every push to main and every pull
+# request, and keeps what was built: the Windows program, and the macOS app as a disk image.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The releases are built with the GNU toolchain (README); the tests run on the same one.
+      - name: Rust (x86_64-pc-windows-gnu)
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
+      - name: Test
+        run: cargo test
+      - name: Build
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EventStudio-windows
+          path: target/release/event-studio.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cargo test
+      - name: App and disk image (Apple Silicon + Intel)
+        run: packaging/macos/bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EventStudio-macos
+          path: dist/macos/*.dmg
+          if-no-files-found: error
+      # The app is started for real: each window is drawn into a picture (checks/verify-macos.sh).
+      - name: Start the app and draw its windows
+        run: checks/verify-macos.sh "dist/macos/Event Studio.app/Contents/MacOS/EventStudio" dist/macos/shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EventStudio-macos-pictures
+          path: dist/macos/shots
+          if-no-files-found: warn

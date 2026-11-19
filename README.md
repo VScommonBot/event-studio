@@ -1,9 +1,9 @@
 # Event Studio
 
-행사와 발표를 위한 **브랜드 타이머**입니다 (Windows). 브랜드 이름, 행사명, 로고와 배경 이미지를 넣고
+행사와 발표를 위한 **브랜드 타이머**입니다 (Windows · macOS). 브랜드 이름, 행사명, 로고와 배경 이미지를 넣고
 원그래프 · 막대그래프 · 숫자 중에서 골라 쓰며, 발표 자료 위에 배경 없이 떠 있는 **투명 타이머**로도 쓸 수 있습니다.
 
-A **branded timer for events and presentations** on Windows, written in Rust with [egui](https://github.com/emilk/egui).
+A **branded timer for events and presentations** on Windows and macOS, written in Rust with [egui](https://github.com/emilk/egui).
 [English summary below](#english).
 
 ![편집 화면](docs/editor-ko.png)
@@ -38,6 +38,10 @@ A **branded timer for events and presentations** on Windows, written in Rust wit
 (관리자 권한 · 인터넷 연결 불필요). 설치하지 않고 쓰려면 **EventStudio-<버전>.exe**를 그대로 실행해도 됩니다.
 서명하지 않은 프로그램이라 Windows가 "Windows의 PC 보호" 창을 띄우면 "추가 정보" → "실행"을 누르세요.
 
+**macOS**: **EventStudio-<버전>-macOS.dmg**를 열고 Event Studio를 "응용 프로그램" 폴더로 끌어 넣으세요.
+Apple Developer ID로 서명하지 않은 앱이라 처음 열 때 macOS가 막으면, 시스템 설정 → 개인정보 보호 및 보안에서
+"그래도 열기"를 누르세요. ([macOS에서 다른 점](#macos에서-다른-점))
+
 ## 직접 빌드하기
 
 [Rust](https://www.rust-lang.org/tools/install)(stable)가 있으면 아래처럼 직접 만들 수 있습니다.
@@ -52,6 +56,18 @@ cargo test
 - 프로그램 파일의 아이콘과 버전 정보는 툴체인에 `windres`가 있을 때만 들어갑니다. 없으면 경고만 나오고 빌드는 됩니다.
 - 한국어 · 중국어 · 일본어 글자는 Windows에 들어 있는 글꼴(맑은 고딕, Microsoft YaHei, Yu Gothic)로 그립니다.
 - 테스트는 임시 폴더와 `checks\` 아래에 작은 파일을 만들고, 레지스트리는 테스트용 임시 키만 만들었다가 지웁니다.
+- macOS에서는 `packaging/macos/bundle.sh`가 `Event Studio.app`(Apple Silicon + Intel)과 `.dmg`를 `dist/macos`에 만듭니다.
+- 풀 리퀘스트와 `main`에 올라온 변경은 GitHub Actions(`.github/workflows/ci.yml`)가 Windows와 macOS에서 빌드하고 테스트합니다.
+
+## macOS에서 다른 점
+
+- 설정, 이미지, `error-log.txt`는 앱 옆이 아니라 `~/Library/Application Support/Event Studio`에 저장됩니다.
+- 단축키의 Ctrl은 Control 키, Alt는 Option 키입니다. 전체 화면은 Control+Command+F로도 바꿉니다.
+- 투명 타이머를 누르면 Event Studio가 잠깐 앞으로 나왔다가, 마우스 버튼을 떼면 그 전에 쓰던 프로그램(발표 프로그램)에
+  키보드를 돌려줍니다. 떠 있는 동안에도 Dock에는 Event Studio가 보입니다.
+- "설치 파일 만들기"는 Windows에만 있습니다. 다른 Mac에는 앱을 그대로 복사하면 됩니다.
+- macOS 빌드는 GitHub Actions의 macOS에서 빌드하고 자동 테스트를 돌린 것입니다. 실제 Mac 화면에서 투명 타이머가
+  발표 화면 위에 뜨는 모습, 빈 곳 클릭 통과, 전역 단축키는 사람이 아직 확인하지 않았습니다.
 
 ## 명령줄 옵션
 
@@ -63,6 +79,7 @@ cargo test
 | `--install`, `--uninstall` | 설치 창 · 제거 창 열기 (`--silent`: 창 없이, `--dir <폴더>`, `--no-desktop`, `--no-start-menu`, `--replace-settings`, `--remove-data`, `--log <파일>`) |
 | `--sandbox <폴더>` | 시작 메뉴 · 바탕 화면 · 앱 목록 항목까지 모두 그 폴더 안에만 만들기 (점검용) |
 | `--screenshot <파일.png>` | 창을 그려 PNG로 저장하고 끝내기 (`--demo`로 점검용 화면 상태 지정) |
+| `--write-icon <파일.png>` | 프로그램 아이콘을 1024픽셀 PNG로 저장하고 끝내기 (macOS 앱을 묶을 때 씀) |
 
 `checks\` 폴더의 PowerShell 7(`pwsh`) 스크립트는 빌드한 프로그램을 임시 폴더 안에서만 설치 · 실행 · 제거해 보고,
 네 언어의 모든 화면을 그려 봅니다.
@@ -74,11 +91,12 @@ cargo test
 | `src/timer.rs` | 시간 계산: 시작 · 멈춤, 경고 · 종료 · 초과, Q&A 전환 |
 | `src/studio.rs` | 편집 화면, 설정 저장, 발표 화면, 투명 타이머로 전환 |
 | `src/scene.rs`, `src/overlay.rs`, `src/controls.rs` | 발표 화면, 투명 타이머, 마우스를 올리면 나오는 버튼 |
-| `src/win.rs` | Windows 창 처리: 항상 위, 클릭 통과, 전역 단축키 |
+| `src/win.rs`, `src/win_mac.rs` | 창 처리: 항상 위, 클릭 통과, 전역 단축키 (Windows, macOS) |
 | `src/lang.rs`, `src/strings.rs` | 네 언어의 문구 표와 언어 전환 |
 | `src/pack.rs`, `src/setup.rs`, `src/setup_ui.rs`, `src/shell.rs` | 설치 파일 형식, 설치 · 제거, 설치 창, 바로 가기와 앱 목록 |
 | `src/icon_art.rs`, `build.rs` | 프로그램 아이콘 그리기와 버전 정보 |
 | `src/report.rs` | 시작하지 못했거나 오류로 끝날 때의 안내 창과 `error-log.txt` 기록 |
+| `packaging/macos/` | macOS 앱(`Event Studio.app`)과 `.dmg` 묶기 |
 
 영어 · 중국어 · 일본어 문구는 원어민 검수를 거치지 않았습니다. 어색한 표현은 `src/strings.rs`의 해당 줄을 고쳐 보내 주시면 됩니다.
 
@@ -125,6 +143,10 @@ Get **EventStudio-&lt;version&gt;-Setup.exe** from [Releases](../../releases/lat
 without installing. The program is not code-signed, so Windows may show "Windows protected your
 PC": choose "More info", then "Run anyway".
 
+On **macOS**, open **EventStudio-&lt;version&gt;-macOS.dmg** and drag Event Studio to Applications. The app
+is not signed with an Apple Developer ID, so the first time macOS may refuse to open it: allow it
+with "Open Anyway" in System Settings → Privacy & Security.
+
 ### Building
 
 With [Rust](https://www.rust-lang.org/tools/install) (stable):
@@ -139,6 +161,24 @@ and run it from any folder. It is built and tested with the `x86_64-pc-windows-g
 (rustc 1.99, llvm-mingw linker); the MSVC toolchain has not been tried. The program file gets its
 icon and version details only when the toolchain has `windres`; without it the build warns and
 goes on. The command-line options and the source layout are listed in the Korean part above.
+
+On a Mac, `packaging/macos/bundle.sh` builds `Event Studio.app` (Apple Silicon + Intel) and a `.dmg`
+in `dist/macos`. Every pull request is built and tested on Windows and macOS by GitHub Actions
+(`.github/workflows/ci.yml`).
+
+### On macOS
+
+- Settings, images and `error-log.txt` are kept in `~/Library/Application Support/Event Studio`,
+  not beside the app.
+- Ctrl in the hotkeys is the Control key and Alt the Option key; Control+Command+F also switches
+  full screen.
+- A click on the floating timer brings Event Studio forward for a moment; when the mouse button
+  is up, the program that was in front (the slide show) gets the keyboard back. Event Studio stays
+  in the Dock while the timer floats.
+- "Make setup file" is for Windows only; an app is copied to another Mac as it is.
+- The macOS build is built and tested by GitHub Actions on macOS. How the floating timer looks
+  over a slide show on a real Mac screen, clicks passing through its empty parts and the global
+  hotkeys have not yet been checked by a person.
 
 The English, Chinese and Japanese wording has not been reviewed by native speakers; corrections
 to `src/strings.rs` are welcome.

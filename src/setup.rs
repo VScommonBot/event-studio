@@ -275,13 +275,15 @@ fn delete(file: PathBuf, left: &mut Vec<PathBuf>) {
     }
 }
 
+/// (Both are compared with their parts written out in full: a folder given by its short name,
+/// `C:\PROGRA~1`, is the folder a shortcut names in full.)
 fn same_path(a: &Path, b: &Path) -> bool {
-    let tidy = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).replace('/', "\\").to_lowercase();
+    let tidy = |p: &Path| shell::long_path(p).to_string_lossy().trim_end_matches(['\\', '/']).replace('/', "\\").to_lowercase();
     tidy(a) == tidy(b)
 }
 
 fn inside(file: &Path, dir: &Path) -> bool {
-    let tidy = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    let tidy = |p: &Path| shell::long_path(p).to_string_lossy().replace('/', "\\").to_lowercase();
     tidy(file).starts_with(&format!("{}\\", tidy(dir).trim_end_matches('\\')))
 }
 
@@ -592,6 +594,7 @@ pub enum Start {
 /// - `--uninstall`: remove the install this program belongs to (`--silent`, `--remove-data`)
 /// - `--make-setup <file>`: write a setup file with the settings beside this program (`--no-settings`)
 /// - `--sandbox <folder>`: keep everything inside that folder (checks); `--log <file>`: write the outcome there
+/// - `--write-icon <file.png>`: write the program's icon as a 1024-pixel picture and end
 /// - `--lang <ko|en|zh|ja>`: the language of the window and of what is written; without it a
 ///   setup speaks Windows' language and a removal the language the installed program was
 ///   last used in
@@ -617,6 +620,12 @@ pub fn start(args: &Args) -> Start {
         None => Places::real(),
     };
 
+    // `--write-icon <file.png>`: the program's icon as a picture, for building the macOS app (packaging/macos).
+    if let Some(out) = args.value("--write-icon") {
+        let side = 1024;
+        let saved = image::save_buffer(out, &crate::icon_art::icon_rgba(side), side, side, image::ColorType::Rgba8);
+        return Start::Exit(report(&saved.map(|_| out.to_string()).map_err(|e| e.to_string())));
+    }
     if let Some(out) = args.value("--make-setup") {
         // The settings the program itself would open (studio.rs `app_root`).
         let root = crate::studio::app_root();
@@ -688,7 +697,8 @@ mod tests {
 
     impl Bench {
         fn new(name: &str) -> Bench {
-            let root = std::env::temp_dir().join(format!("EventStudio-setup-test-{}-{name} 한글 폴더", std::process::id()));
+            // (The temp folder may be given by its short name; shortcuts store the full one.)
+            let root = shell::long_path(&std::env::temp_dir()).join(format!("EventStudio-setup-test-{}-{name} 한글 폴더", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("source/assets")).unwrap();
             let program: Vec<u8> = (0..300_000u32).map(|i| (i * 7 % 253) as u8).collect();

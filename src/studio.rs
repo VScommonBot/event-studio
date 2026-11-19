@@ -46,6 +46,7 @@ const FRAME_LATE:Duration=Duration::from_millis(2); // a frame asked for a momen
 const SETTLE_FRAMES:u32=10; // every frame for this many after a window opens or changes its kind
 const GRAPH_STEPS:f64=3000.0; // the ring or bar is drawn this often over the timer's length, about a pixel a step
 const GRAPH_SLOWEST:f64=0.25; // but at least four times a second
+const POINTER_POLL:f64=0.05; // macOS: where the pointer is over the floating timer is looked up this often (win_mac.rs)
 /// The event name a new set of settings starts with; in another language it starts as that language's wording.
 pub(crate) const FIRST_EVENT:&str="새로운 가능성을 여는 시간";
 /// Where `--demo hidden` puts a check's window: beyond every screen.
@@ -130,14 +131,22 @@ struct Studio{
  steady:bool,
  /// Every frame is drawn until this one (`settle`).
  settle_until:u32,
+ /// macOS: where the pointer was last found over the floating timer (`raw_input_hook`).
+ pointer_at:Option<(i32,i32)>,
 }
 /// The 설치 파일 만들기 window: whether the settings go along, and how the last try ended.
 struct Packer{with_settings:bool,made:Option<PathBuf>,error:Option<String>}
+/// Where a macOS app keeps what it saves: an app is a folder that has to stay as it was built
+/// (and often cannot be written), so for a program inside one (`….app/Contents/MacOS`) that is
+/// the person's Application Support folder. `None` for a program on its own, which keeps its
+/// settings beside itself as on Windows.
+fn bundle_data_folder(dir:&Path,home:Option<&Path>)->Option<PathBuf>{dir.ends_with("Contents/MacOS").then(||home.map(|home|home.join("Library/Application Support").join(setup::APP_NAME))).flatten()}
 /// The folder the settings and images are kept in: the program's own (for a build run from
-/// `target\debug` or `target\release`, the project's). The folder it was started in, should
-/// Windows not say where the program is.
+/// `target\debug` or `target\release`, the project's; for a macOS app, `bundle_data_folder`).
+/// The folder it was started in, should the system not say where the program is.
 pub(crate) fn app_root()->PathBuf{
  let Some(dir)=std::env::current_exe().ok().and_then(|exe|exe.parent().map(Path::to_path_buf)) else{return PathBuf::from(".")};
+ if cfg!(target_os="macos"){if let Some(kept)=bundle_data_folder(&dir,std::env::var_os("HOME").map(PathBuf::from).as_deref()).filter(|kept|std::fs::create_dir_all(kept).is_ok()){return kept;}}
  let built=dir.file_name().is_some_and(|x|x=="debug"||x=="release")&&dir.parent().is_some_and(|x|x.ends_with("target"));
  if built{if let Some(project)=dir.parent().and_then(Path::parent){return project.to_path_buf();}}
  dir
@@ -212,7 +221,7 @@ fn needs_white(logo:[f32;3],behind:[f32;3])->bool{let bg=luminance(behind);contr
 fn rgb(c:Color32)->[f32;3]{[c.r() as f32/255.0,c.g() as f32/255.0,c.b() as f32/255.0]}
 impl Studio{
  fn bare(s:Settings,root:PathBuf,shot:Option<PathBuf>)->Self{let last_saved=serde_json::to_string(&s).unwrap();Self{clock:Clock::new(s.duration),s,epoch:Instant::now(),root,textures:Pictures::default(),tab:0,status:t("설정은 자동으로 저장됩니다").into(),last_saved,dirty_since:None,presentation:false,audience:false,audience_full:false,confirm_reset:false,prior_phase:Phase::Ready,shot,frames:0,shot_requested:false,screenshot_ok:false,
-  overlay:false,hwnd:None,editor_rect:None,geometry:None,place_overlay:false,last_topmost:0.0,activity:Instant::now(),audience_activity:Instant::now(),bars:HashMap::new(),float_buttons:Vec::new(),gesture:None,flash_since:None,force_controls:false,pulse:None,auto_float:None,auto_back:None,auto_language:None,hotkeys:None,hotkey_failed:false,digit_hotkeys:None,digit_failed:false,hit_region:None,packer:None,wide_fonts:false,font_text:String::new(),panel_end:false,steady:false,settle_until:SETTLE_FRAMES}}
+  overlay:false,hwnd:None,editor_rect:None,geometry:None,place_overlay:false,last_topmost:0.0,activity:Instant::now(),audience_activity:Instant::now(),bars:HashMap::new(),float_buttons:Vec::new(),gesture:None,flash_since:None,force_controls:false,pulse:None,auto_float:None,auto_back:None,auto_language:None,hotkeys:None,hotkey_failed:false,digit_hotkeys:None,digit_failed:false,hit_region:None,packer:None,wide_fonts:false,font_text:String::new(),panel_end:false,steady:false,settle_until:SETTLE_FRAMES,pointer_at:None}}
  fn new(cc:&eframe::CreationContext<'_>,shot:Option<PathBuf>,demo:Option<String>,floating:bool,language:Option<Lang>)->Self{
   let ctx=&cc.egui_ctx;
   let root=app_root();let(mut s,warning)=load_settings(&root);
@@ -246,7 +255,7 @@ impl Studio{
    if self.s.mode!=Mode::Number&&self.clock.elapsed(now)<self.clock.duration{wait=wait.min((self.clock.duration/GRAPH_STEPS).clamp(FRAME.as_secs_f64(),GRAPH_SLOWEST));}
   }
   if self.overlay{
-   wait=wait.min(TOPMOST_EVERY-(now-self.last_topmost));
+   wait=wait.min(TOPMOST_EVERY-(now-self.last_topmost));if win::FOLLOWS_POINTER{wait=wait.min(POINTER_POLL);}
    if let Some(e)=self.flash_since.map(|t|t.elapsed().as_secs_f64()).filter(|e|*e<FLASH_SECS){wait=wait.min(0.5-e%0.5);}
   }
   for idle in [Some(self.activity),self.audience.then_some(self.audience_activity)].into_iter().flatten().map(|at|at.elapsed().as_secs_f64()){if idle<CONTROLS_IDLE{wait=wait.min(CONTROLS_IDLE-idle);}}
@@ -290,7 +299,8 @@ impl Studio{
   let mut picked=self.s.language;language_picker(ui,&mut picked);if picked!=self.s.language{self.set_language(ctx,picked);}
   if ui.button(t("발표 화면 열기  ↗")).on_hover_text(t("별도 창을 다른 모니터로 옮길 수 있습니다")).clicked(){self.audience=true;self.settle();}if ui.button(t("전체 화면  F11")).clicked(){self.presentation=true;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));}
   if ui.add(Button::new(RichText::new(t("투명 타이머 실행")).color(self.s.accent()).strong()).stroke(Stroke::new(1.0_f32,self.s.accent()))).on_hover_text(t("배경 없이 다른 창 위에 늘 떠 있는 작은 타이머로 바꿉니다")).clicked(){self.enter_floating(ctx);}
-  if ui.button(t("설치 파일 만들기")).on_hover_text(t("이 프로그램을 다른 컴퓨터에도 설치할 수 있는 파일 하나로 묶습니다")).clicked(){self.packer=Some(Packer{with_settings:true,made:None,error:None});}});});});}
+  // (A setup file is Windows' way of handing the program on; a macOS app is copied as it is.)
+  if cfg!(windows)&&ui.button(t("설치 파일 만들기")).on_hover_text(t("이 프로그램을 다른 컴퓨터에도 설치할 수 있는 파일 하나로 묶습니다")).clicked(){self.packer=Some(Packer{with_settings:true,made:None,error:None});}});});});}
  /// 설치 파일 만들기: this program as one setup file, with the settings and images on screen if wanted.
  fn packer_window(&mut self,ctx:&Context){
   let Some(mut p)=self.packer.take() else{return};let(mut open,mut close)=(true,false);
@@ -360,7 +370,7 @@ impl Studio{
   let show=self.controls_forced()||on_bar||(hover.is_some()&&activity.elapsed().as_secs_f64()<CONTROLS_IDLE);let o=ui.ctx().animate_bool_with_time(ui.id().with(("controls",salt)),show,CONTROLS_FADE);
   let anchor=pos2(timer_rect.center().x,(timer_rect.bottom()+20.0).min(area.bottom()-6.0));let b=controls::bar(ui,salt,area,anchor,controls::STAGE,self.control_state(),o);self.bars.insert(salt,b.rect);b.pressed
  }
- fn keys(&mut self,ctx:&Context){if self.overlay{self.floating_keys(ctx);return;}if ctx.input(|i|i.key_pressed(Key::Escape)){self.presentation=false;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::F11)){self.presentation=!self.presentation;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.presentation));}if ctx.wants_keyboard_input(){return;}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}if ctx.input(|i|i.key_pressed(Key::R)){if self.clock.elapsed(self.now())>0.0{self.confirm_reset=true}else{self.reset();}}if ctx.input(|i|i.key_pressed(Key::Q))&&self.s.qna_enabled{self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}for(key,mode)in[(Key::Num1,Mode::Circle),(Key::Num2,Mode::Bar),(Key::Num3,Mode::Number)]{if ctx.input(|i|i.key_pressed(key)){self.s.mode=mode;}}}
+ fn keys(&mut self,ctx:&Context){if self.overlay{self.floating_keys(ctx);return;}if ctx.input(|i|i.key_pressed(Key::Escape)){self.presentation=false;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if fullscreen_key(ctx){self.presentation=!self.presentation;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.presentation));}if ctx.wants_keyboard_input(){return;}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}if ctx.input(|i|i.key_pressed(Key::R)){if self.clock.elapsed(self.now())>0.0{self.confirm_reset=true}else{self.reset();}}if ctx.input(|i|i.key_pressed(Key::Q))&&self.s.qna_enabled{self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}for(key,mode)in[(Key::Num1,Mode::Circle),(Key::Num2,Mode::Bar),(Key::Num3,Mode::Number)]{if ctx.input(|i|i.key_pressed(key)){self.s.mode=mode;}}}
  /// Keys while the floating timer has the keyboard (app.js KEYS): Space, R, arrows ±1 min / ±10 s, 1–3, S/F2/Esc editor.
  fn floating_keys(&mut self,ctx:&Context){let pressed=|k|ctx.input(|i|i.key_pressed(k));if pressed(Key::Space){self.toggle();}if pressed(Key::R){self.reset();}if pressed(Key::Q)&&self.s.qna_enabled{self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}
   for(key,d)in[(Key::ArrowUp,60.0),(Key::ArrowDown,-60.0),(Key::ArrowLeft,-10.0),(Key::ArrowRight,10.0)]{if pressed(key){self.adjust(d);}}for(key,mode)in[(Key::Num1,Mode::Circle),(Key::Num2,Mode::Bar),(Key::Num3,Mode::Number)]{if pressed(key){self.s.mode=mode;}}
@@ -368,12 +378,12 @@ impl Studio{
  /// Where the floating timer opens: last place if it is still on a screen, else the
  /// top-right of the work area under the window (placement.js pickBounds / topRight).
  fn floating_target(&self,ctx:&Context,h:isize)->win::PxRect{
-  let ppp=ctx.pixels_per_point();let px=|v:f32|(v*ppp).round() as i32;let cur=win::window_rect(h);let(cx,cy)=cur.map_or((0,0),|r|(r.x+r.w/2,r.y+r.h/2));let saved=self.s.overlay_rect.map(win::PxRect::from_array);
+  let ppp=win::units_per_point(ctx);let px=|v:f32|(v*ppp).round() as i32;let cur=win::window_rect(h);let(cx,cy)=cur.map_or((0,0),|r|(r.x+r.w/2,r.y+r.h/2));let saved=self.s.overlay_rect.map(win::PxRect::from_array);
   let(w,hh)=saved.map_or((px(FLOAT_SIZE.x),px(FLOAT_SIZE.y)),|r|(r.w.max(px(FLOAT_MIN.x)),r.h.max(px(FLOAT_MIN.y))));
   if let Some(r)=saved.filter(|r|!self.s.overlay_top_right&&win::on_screen(r.x+r.w/2,r.y+10)){return win::PxRect{x:r.x,y:r.y,w,h:hh};}
   let area=win::work_area(cx,cy).unwrap_or(win::PxRect{x:0,y:0,w:px(1920.0),h:px(1040.0)});win::top_right(area,w.min(area.w),hh.min(area.h),px(FLOAT_MARGIN))
  }
- fn editor_default(&self,ctx:&Context)->win::PxRect{let ppp=ctx.pixels_per_point();let c=self.hwnd.and_then(win::window_rect).map_or((0,0),|r|(r.x+r.w/2,r.y+r.h/2));let a=win::work_area(c.0,c.1).unwrap_or(win::PxRect{x:0,y:0,w:1920,h:1040});let w=((EDITOR_SIZE.x*ppp) as i32).min(a.w);let h=((EDITOR_SIZE.y*ppp) as i32).min(a.h);win::PxRect{x:a.x+(a.w-w)/2,y:a.y+(a.h-h)/2,w,h}}
+ fn editor_default(&self,ctx:&Context)->win::PxRect{let ppp=win::units_per_point(ctx);let c=self.hwnd.and_then(win::window_rect).map_or((0,0),|r|(r.x+r.w/2,r.y+r.h/2));let a=win::work_area(c.0,c.1).unwrap_or(win::PxRect{x:0,y:0,w:1920,h:1040});let w=((EDITOR_SIZE.x*ppp) as i32).min(a.w);let h=((EDITOR_SIZE.y*ppp) as i32).min(a.h);win::PxRect{x:a.x+(a.w-w)/2,y:a.y+(a.h-h)/2,w,h}}
  /// Turns the window into the floating timer: no frame, no background, always on top.
  fn enter_floating(&mut self,ctx:&Context){
   if self.overlay{return;}let Some(h)=self.hwnd else{self.status=t("이 컴퓨터에서는 투명 타이머를 열 수 없습니다").into();return;};
@@ -384,7 +394,7 @@ impl Studio{
  }
  /// Back to the editor where it was.
  fn leave_floating(&mut self,ctx:&Context){
-  if !self.overlay{return;}self.overlay=false;self.gesture=None;let target=self.editor_rect.unwrap_or_else(||self.editor_default(ctx));if let Some(h)=self.hwnd{self.set_hit_region(h,None);win::set_floating(h,false);}
+  if !self.overlay{return;}self.overlay=false;self.gesture=None;self.pointer_at=None;let target=self.editor_rect.unwrap_or_else(||self.editor_default(ctx));if let Some(h)=self.hwnd{self.set_hit_region(h,None);win::set_floating(h,false);}
   for cmd in [ViewportCommand::Decorations(true),ViewportCommand::WindowLevel(if self.s.pin{egui::WindowLevel::AlwaysOnTop}else{egui::WindowLevel::Normal}),ViewportCommand::MinInnerSize(EDITOR_MIN),ViewportCommand::Title(t(EDITOR_TITLE).into()),ViewportCommand::Focus]{ctx.send_viewport_cmd(cmd);}
   self.geometry=Some((target,self.frames+1));self.settle();
  }
@@ -398,13 +408,13 @@ impl Studio{
  /// Sets which parts of the window take the mouse; only touches the window when that changes.
  fn set_hit_region(&mut self,h:isize,region:Option<Vec<win::HitShape>>){if region!=self.hit_region{win::set_hit_region(h,region.as_deref());self.hit_region=region;}}
  /// Keeps where the floating timer is, and whether that is still the top-right spot (main.js saveBounds).
- fn remember_floating(&mut self,ctx:&Context){let Some(r)=self.hwnd.and_then(win::window_rect) else{return};self.s.overlay_rect=Some(r.to_array());let m=(FLOAT_MARGIN*ctx.pixels_per_point()).round() as i32;self.s.overlay_top_right=win::work_area(r.x+r.w/2,r.y+r.h/2).is_some_and(|a|{let t=win::top_right(a,r.w,r.h,m);(r.x-t.x).abs()<=2&&(r.y-t.y).abs()<=2});}
+ fn remember_floating(&mut self,ctx:&Context){let Some(r)=self.hwnd.and_then(win::window_rect) else{return};self.s.overlay_rect=Some(r.to_array());let m=(FLOAT_MARGIN*win::units_per_point(ctx)).round() as i32;self.s.overlay_top_right=win::work_area(r.x+r.w/2,r.y+r.h/2).is_some_and(|a|{let t=win::top_right(a,r.w,r.h,m);(r.x-t.x).abs()<=2&&(r.y-t.y).abs()<=2});}
  /// Ctrl+wheel: scale around the centre, within the screen (main.js window:zoom).
- fn zoom_floating(&mut self,ctx:&Context,h:isize,f:f32){let Some(r)=win::window_rect(h) else{return};let ppp=ctx.pixels_per_point();let a=win::work_area(r.x+r.w/2,r.y+r.h/2).unwrap_or(win::PxRect{x:r.x,y:r.y,w:i32::MAX/4,h:i32::MAX/4});let w=((r.w as f32*f).round() as i32).max((FLOAT_MIN.x*ppp).round() as i32).min(a.w);let hh=((r.h as f32*f).round() as i32).max((FLOAT_MIN.y*ppp).round() as i32).min(a.h);win::set_rect(h,win::PxRect{x:r.x+(r.w-w)/2,y:r.y+(r.h-hh)/2,w,h:hh});self.remember_floating(ctx);}
+ fn zoom_floating(&mut self,ctx:&Context,h:isize,f:f32){let Some(r)=win::window_rect(h) else{return};let ppp=win::units_per_point(ctx);let a=win::work_area(r.x+r.w/2,r.y+r.h/2).unwrap_or(win::PxRect{x:r.x,y:r.y,w:i32::MAX/4,h:i32::MAX/4});let w=((r.w as f32*f).round() as i32).max((FLOAT_MIN.x*ppp).round() as i32).min(a.w);let hh=((r.h as f32*f).round() as i32).max((FLOAT_MIN.y*ppp).round() as i32).min(a.h);win::set_rect(h,win::PxRect{x:r.x+(r.w-w)/2,y:r.y+(r.h-hh)/2,w,h:hh});self.remember_floating(ctx);}
  fn start_gesture(&mut self,kind:GestureKind,h:isize){if let Some(rect)=win::window_rect(h){self.gesture=Some(Gesture{kind,cursor:win::cursor(),rect,moved:false});}}
  /// The floating timer: drawn on nothing, buttons on hover, moved and sized with the mouse.
  fn floating(&mut self,ctx:&Context){
-  let ppp=ctx.pixels_per_point();let(hover,pressed,secondary,zoom,origin)=ctx.input(|i|(i.pointer.hover_pos(),i.pointer.primary_pressed(),i.pointer.secondary_pressed(),i.zoom_delta(),i.pointer.press_origin()));
+  let ppp=win::units_per_point(ctx);let(hover,pressed,secondary,zoom,origin)=ctx.input(|i|(i.pointer.hover_pos(),i.pointer.primary_pressed(),i.pointer.secondary_pressed(),i.zoom_delta(),i.pointer.press_origin()));
   let view=self.clock.view(self.now(),self.s.warning,self.s.count_up,self.s.overtime,self.s.seconds_only);let running=self.clock.running();
   let status=overlay::status_text(&view,self.s.count_up,running,self.started(),self.clock.qna,self.clock.duration);
   let blink=self.flash_since.is_some_and(|t|{let e=t.elapsed().as_secs_f64();e<FLASH_SECS&&e.fract()>=0.5});
@@ -434,6 +444,8 @@ impl Studio{
   // app.js pointerdown: the right button resets.
   if secondary&&origin.is_some_and(|p|!bar.contains(p)){self.reset();}
   if let Some(c)=cmd{self.apply_cmd(c,ctx);}
+  // macOS: a click brought this app to the front; the slide show gets the keyboard back (win_mac.rs).
+  if self.overlay&&self.gesture.is_none(){win::return_focus();}
  }
  /// Optional system-wide keys: Ctrl+Alt+Space / R / Q all the time (1.1.0's global hotkeys), and
  /// while the floating timer is up also Ctrl+1/2/3.
@@ -448,8 +460,11 @@ impl Studio{
   for k in keys{match k{win::HOT_TOGGLE=>self.toggle(),win::HOT_RESET=>self.reset(),win::HOT_QNA if self.s.qna_enabled=>self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now()),_=>{}}}
  }
 }
+/// F11 switches full screen; on macOS, where F11 belongs to the system, so does its own Ctrl+Cmd+F.
+fn fullscreen_key(ctx:&Context)->bool{ctx.input(|i|i.key_pressed(Key::F11))||(cfg!(target_os="macos")&&ctx.input_mut(|i|i.consume_shortcut(&KeyboardShortcut::new(Modifiers::MAC_CMD|Modifiers::CTRL,Key::F))))}
 /// The icon of the program's windows (the same drawing build.rs puts inside the program file).
-pub(crate) fn window_icon()->egui::IconData{let size=64;egui::IconData{rgba:crate::icon_art::icon_rgba(size),width:size,height:size}}
+/// (macOS shows it in the Dock, large.)
+pub(crate) fn window_icon()->egui::IconData{let size=if cfg!(target_os="macos"){512}else{64};egui::IconData{rgba:crate::icon_art::icon_rgba(size),width:size,height:size}}
 /// An event name that is still the placeholder of the language `from`, in the language `to`.
 fn placeholder_in(event:&str,from:Lang,to:Lang)->Option<&'static str>{(event==lang::tr(from,FIRST_EVENT)).then(||lang::tr(to,FIRST_EVENT))}
 /// The language switch: every language under its own name, so it can be found whatever language is on.
@@ -461,38 +476,86 @@ pub(crate) fn theme(ctx:&Context,language:Lang){
  install_fonts(ctx,language,false);
  let mut style=(*ctx.style()).clone();style.visuals=Visuals::dark();style.visuals.panel_fill=PANEL;style.visuals.window_fill=PANEL;style.visuals.override_text_color=Some(WHITE);style.visuals.selection.bg_fill=Color32::from_rgb(43,85,76);style.visuals.widgets.inactive.bg_fill=Color32::from_rgb(33,40,50);style.visuals.widgets.inactive.bg_stroke=Stroke::new(1.0_f32,LINE);style.visuals.widgets.hovered.bg_fill=Color32::from_rgb(48,60,70);style.visuals.widgets.active.bg_fill=Color32::from_rgb(49,80,73);style.spacing.item_spacing=vec2(9.0,10.0);style.spacing.button_padding=vec2(13.0,9.0);style.spacing.interact_size=vec2(30.0,34.0);style.text_styles.insert(TextStyle::Body,FontId::proportional(14.0));style.text_styles.insert(TextStyle::Button,FontId::proportional(14.0));style.text_styles.insert(TextStyle::Small,FontId::proportional(11.0));ctx.set_style_of(Theme::Dark,style);ctx.set_theme(ThemePreference::Dark);
 }
-/// A face of a font file: its name in Windows' font folder and its place in a collection (.ttc).
-type Face=(&'static str,u32);
+/// Which face of a font file: its place in a collection (.ttc), or — where a collection's faces
+/// do not stand in the same order on every version of the system — the upright face whose
+/// PostScript name has this part in it and whose weight is nearest (400 regular, 700 bold).
+#[derive(Clone,Copy,Debug,PartialEq)] enum Pick{Nth(u32),#[cfg_attr(not(target_os="macos"),allow(dead_code))] Like(&'static str,u16)}
+use Pick::Nth;
+/// A face of a font file: the file's name in Windows' font folder (on macOS its whole path) and which face of it.
+type Face=(&'static str,Pick);
 /// Windows' own fonts for each language, regular and bold; the first that is there is used.
 /// Korean keeps Malgun Gothic, as before. English gets Segoe UI (the same letters, but a backslash
 /// that is not drawn as the won sign), Chinese Microsoft YaHei UI and Japanese Yu Gothic UI (the
 /// second face of their collections): Malgun Gothic has neither the simplified characters nor
 /// Japan's forms.
+#[cfg(not(target_os="macos"))]
 fn language_faces(language:Lang)->(&'static [Face],&'static [Face]){match language{
  Lang::Ko=>(KOREAN_FACES.0,KOREAN_FACES.1),
- Lang::En=>(&[("segoeui.ttf",0)],&[("segoeuib.ttf",0)]),
- Lang::Zh=>(&[("msyh.ttc",1),("msyh.ttc",0),("msyh.ttf",0),("simsun.ttc",0)],&[("msyhbd.ttc",1),("msyhbd.ttc",0),("msyhbd.ttf",0)]),
- Lang::Ja=>(&[("YuGothM.ttc",1),("YuGothM.ttc",0),("meiryo.ttc",2),("meiryo.ttc",0),("msgothic.ttc",1)],&[("YuGothB.ttc",1),("YuGothB.ttc",0),("meiryob.ttc",2),("meiryob.ttc",0)]),
+ Lang::En=>(&[("segoeui.ttf",Nth(0))],&[("segoeuib.ttf",Nth(0))]),
+ Lang::Zh=>(&[("msyh.ttc",Nth(1)),("msyh.ttc",Nth(0)),("msyh.ttf",Nth(0)),("simsun.ttc",Nth(0))],&[("msyhbd.ttc",Nth(1)),("msyhbd.ttc",Nth(0)),("msyhbd.ttf",Nth(0))]),
+ Lang::Ja=>(&[("YuGothM.ttc",Nth(1)),("YuGothM.ttc",Nth(0)),("meiryo.ttc",Nth(2)),("meiryo.ttc",Nth(0)),("msgothic.ttc",Nth(1))],&[("YuGothB.ttc",Nth(1)),("YuGothB.ttc",Nth(0)),("meiryob.ttc",Nth(2)),("meiryob.ttc",Nth(0))]),
 }}
-const KOREAN_FACES:(&[Face],&[Face])=(&[("malgun.ttf",0)],&[("malgunbd.ttf",0)]);
+#[cfg(not(target_os="macos"))]
+const KOREAN_FACES:(&[Face],&[Face])=(&[("malgun.ttf",Nth(0))],&[("malgunbd.ttf",Nth(0))]);
 /// For characters none of a language's fonts has: Microsoft YaHei covers Chinese and Japanese.
-const WIDE_FACES:&[Face]=&[("msyh.ttc",1),("msyh.ttc",0),("msyh.ttf",0),("simsun.ttc",0)];
-/// A font from Windows' font folder. A file is read once and kept for as long as the program runs,
-/// so switching languages back and forth neither reads nor holds it again.
+#[cfg(not(target_os="macos"))]
+const WIDE_FACES:&[Face]=&[("msyh.ttc",Nth(1)),("msyh.ttc",Nth(0)),("msyh.ttf",Nth(0)),("simsun.ttc",Nth(0))];
+/// Digits of the floating timer: Segoe UI Bold draws them cleanly.
+#[cfg(not(target_os="macos"))]
+const DIGIT_FACES:&[Face]=&[("segoeuib.ttf",Nth(0))];
+/// macOS' own fonts for each language, regular and bold: Apple SD Gothic Neo for Korean, Helvetica
+/// for English, Hiragino Sans for Japanese, and for Chinese PingFang SC where macOS keeps it with
+/// the other fonts (older versions do; macOS 26 does not), else Hiragino Sans GB, which every
+/// version has. Their collections hold many weights, and some the forms of several regions, so a
+/// face is found by its name and weight.
+#[cfg(target_os="macos")]
+fn language_faces(language:Lang)->(&'static [Face],&'static [Face]){use Pick::Like;match language{
+ Lang::Ko=>(KOREAN_FACES.0,KOREAN_FACES.1),
+ Lang::En=>(&[("/System/Library/Fonts/Helvetica.ttc",Like("Helvetica",400)),("/System/Library/Fonts/Supplemental/Arial.ttf",Nth(0))],&[("/System/Library/Fonts/Helvetica.ttc",Like("Helvetica",700)),("/System/Library/Fonts/Supplemental/Arial Bold.ttf",Nth(0))]),
+ Lang::Zh=>(&[("/System/Library/Fonts/PingFang.ttc",Like("PingFangSC-",400)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",300)),("/System/Library/Fonts/STHeiti Medium.ttc",Like("STHeitiSC-",400)),("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0))],
+  &[("/System/Library/Fonts/PingFang.ttc",Like("PingFangSC-",600)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",600)),("/System/Library/Fonts/STHeiti Medium.ttc",Like("STHeitiSC-",400))]),
+ Lang::Ja=>(&[("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",Like("HiraginoSans-",300)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",300)),("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0))],
+  &[("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",Like("HiraginoSans-",600)),("/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc",Like("HiraginoSans-",700)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",600))]),
+}}
+#[cfg(target_os="macos")]
+const KOREAN_FACES:(&[Face],&[Face])=(&[("/System/Library/Fonts/AppleSDGothicNeo.ttc",Pick::Like("AppleSDGothicNeo-",400)),("/System/Library/Fonts/Supplemental/AppleGothic.ttf",Nth(0))],&[("/System/Library/Fonts/AppleSDGothicNeo.ttc",Pick::Like("AppleSDGothicNeo-",700))]);
+/// For characters none of a language's fonts has: Arial Unicode covers Korean, Chinese and Japanese.
+#[cfg(target_os="macos")]
+const WIDE_FACES:&[Face]=&[("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0)),("/System/Library/Fonts/PingFang.ttc",Pick::Like("PingFangSC-",400)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Pick::Like("HiraginoSansGB-",300))];
+/// Digits of the floating timer: Helvetica Bold draws them cleanly.
+#[cfg(target_os="macos")]
+const DIGIT_FACES:&[Face]=&[("/System/Library/Fonts/Helvetica.ttc",Pick::Like("Helvetica",700)),("/System/Library/Fonts/Supplemental/Arial Bold.ttf",Nth(0))];
+/// The face of a font file's bytes that `Pick::Like` asks for: among the upright faces whose
+/// PostScript name has `part` in it, the one nearest in weight, and of equals the first.
+fn face_like(bytes:&[u8],part:&str,weight:u16)->Option<u32>{
+ (0..ttf_parser::fonts_in_collection(bytes).unwrap_or(1)).filter_map(|index|{
+  let face=ttf_parser::Face::parse(bytes,index).ok()?;if face.is_italic()||face.is_oblique(){return None;}
+  let named=part.is_empty()||postscript_names(&face).iter().any(|name|name.contains(part));
+  named.then(||((face.weight().to_number() as i32-weight as i32).abs(),index))
+ }).min().map(|(_,index)|index)
+}
+/// A face's PostScript names. They are plain letters; a font may keep them as two-byte text (which
+/// ttf-parser reads) or, in the old Macintosh way, one byte a letter.
+fn postscript_names(face:&ttf_parser::Face)->Vec<String>{face.names().into_iter().filter(|name|name.name_id==ttf_parser::name_id::POST_SCRIPT_NAME).map(|name|name.to_string().unwrap_or_else(||String::from_utf8_lossy(name.name).into_owned())).collect()}
+/// A font of the system (Windows' font folder; on macOS the file's whole path is given). A file is
+/// read once and kept for as long as the program runs, so switching languages back and forth
+/// neither reads nor holds it again.
 fn system_font(face:Face)->Option<FontData>{
  static READ:std::sync::OnceLock<std::sync::Mutex<HashMap<&'static str,Option<&'static [u8]>>>>=std::sync::OnceLock::new();
- let(file,index)=face;
+ let(file,pick)=face;
  let bytes=(*READ.get_or_init(Default::default).lock().ok()?.entry(file).or_insert_with(||{
+  // (Joining a whole path leaves it as it is.)
   let folder=std::env::var_os("WINDIR").map_or_else(||PathBuf::from("C:/Windows"),PathBuf::from).join("Fonts");
   std::fs::read(folder.join(file)).ok().map(|data|&*Box::leak(data.into_boxed_slice()))
  }))?;
  // egui stops the program on data it cannot read as a font, so only a file that starts like
- // one, with that many faces in it, is handed over.
+ // one, with that many faces in it and that face readable, is handed over.
  let faces=match bytes.get(..4)?{b"ttcf"=>u32::from_be_bytes(bytes.get(8..12)?.try_into().ok()?),[0,1,0,0]|b"OTTO"|b"true"=>1,_=>0};
- if index>=faces{return None;}
+ let index=match pick{Nth(index)=>index,Pick::Like(part,weight)=>face_like(bytes,part,weight)?};
+ if index>=faces||ttf_parser::Face::parse(bytes,index).is_err(){return None;}
  let mut data=FontData::from_static(bytes);data.index=index;Some(data)
 }
-/// The fonts of a language: its own first, Malgun Gothic behind them for Korean in a brand or
+/// The fonts of a language: its own first, the Korean ones behind them for Korean in a brand or
 /// event name, and a bold family for the floating timer. `wide` adds one more font for
 /// characters none of them has.
 pub(crate) fn install_fonts(ctx:&Context,language:Lang,wide:bool){
@@ -502,8 +565,7 @@ pub(crate) fn install_fonts(ctx:&Context,language:Lang,wide:bool){
   if !fonts.font_data.contains_key(name){if let Some(data)=faces.iter().find_map(|f|system_font(*f)){fonts.font_data.insert(name.into(),data.into());}}
   if fonts.font_data.contains_key(name)&&!list.iter().any(|n|n==name){list.push(name.into());}
  };
- // Digits of the floating timer: Segoe UI Bold draws them cleanly.
- add(&mut heavy,"DigitsBold",&[("segoeuib.ttf",0)]);
+ add(&mut heavy,"DigitsBold",DIGIT_FACES);
  // Korean's own fonts are the ones every language falls back on, so they are listed once.
  let(regular,bold_faces)=language_faces(language);let own=language!=Lang::Ko;
  if own{add(&mut body,"Language",regular);add(&mut heavy,"LanguageBold",bold_faces);}
@@ -528,7 +590,7 @@ impl eframe::App for Studio{
   else if self.presentation{CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx,|ui|{let r=ui.max_rect();let v=self.clock.view(self.now(),self.s.warning,self.s.count_up,self.s.overtime,self.s.seconds_only);let tr=scene::render(ui.painter(),r,&self.s,&v,&self.textures,self.clock.qna,self.clock.running());ui.put(Rect::from_min_size(r.left_top()+vec2(12.0,12.0),vec2(140.0,28.0)),Label::new(RichText::new(t("Esc  편집 화면으로")).color(MUTED).size(11.0)));if let Some(cmd)=self.hover_bar(ui,"presentation",r,tr,self.activity){self.apply_cmd(cmd,ui.ctx());}});if !self.force_controls&&self.activity.elapsed().as_secs_f64()>=CONTROLS_IDLE{ctx.set_cursor_icon(CursorIcon::None);}}
   else{self.top(ctx);self.controls(ctx);self.inspector(ctx);self.workspace(ctx);self.packer_window(ctx);}
   if self.confirm_reset&&!self.overlay{Window::new(t("타이머 초기화")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,[0.0,0.0]).show(ctx,|ui|{ui.label(t("진행 시간을 지우고 설정한 발표 시간으로 돌아갈까요?"));ui.horizontal(|ui|{if ui.button(t("초기화")).clicked(){self.reset();}if ui.button(t("취소")).clicked(){self.confirm_reset=false;}});});}
-  if self.audience{ctx.show_viewport_immediate(ViewportId::from_hash_of("audience"),ViewportBuilder::default().with_title(t("행사 발표 화면 · F11 전체 화면")).with_inner_size([1100.0,720.0]).with_min_inner_size([480.0,320.0]),|ctx,_|{if ctx.input(|i|i.viewport().close_requested()){self.audience=false;}if ctx.input(|i|i.key_pressed(Key::F11)){self.audience_full=!self.audience_full;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.audience_full));}if ctx.input(|i|i.key_pressed(Key::Escape)){self.audience_full=false;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}
+  if self.audience{ctx.show_viewport_immediate(ViewportId::from_hash_of("audience"),ViewportBuilder::default().with_title(t("행사 발표 화면 · F11 전체 화면")).with_inner_size([1100.0,720.0]).with_min_inner_size([480.0,320.0]),|ctx,_|{if ctx.input(|i|i.viewport().close_requested()){self.audience=false;}if fullscreen_key(ctx){self.audience_full=!self.audience_full;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.audience_full));}if ctx.input(|i|i.key_pressed(Key::Escape)){self.audience_full=false;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}
    if ctx.input(|i|i.pointer.delta()!=Vec2::ZERO||i.pointer.any_pressed()){self.audience_activity=Instant::now();}
    CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx,|ui|{let v=self.clock.view(self.now(),self.s.warning,self.s.count_up,self.s.overtime,self.s.seconds_only);let r=ui.max_rect();let tr=scene::render(ui.painter(),r,&self.s,&v,&self.textures,self.clock.qna,self.clock.running());if let Some(cmd)=self.hover_bar(ui,"audience",r,tr,self.audience_activity){self.apply_cmd(cmd,ui.ctx());}});
    if !self.force_controls&&ctx.input(|i|i.pointer.hover_pos().is_some())&&self.audience_activity.elapsed().as_secs_f64()>=CONTROLS_IDLE{ctx.set_cursor_icon(CursorIcon::None);}
@@ -540,6 +602,15 @@ impl eframe::App for Studio{
   else{self.dirty_since=None;}
   if self.shot.is_some()&&!self.shot_requested&&self.frames>=120{ctx.send_viewport_cmd(ViewportCommand::Screenshot(egui::UserData::default()));self.shot_requested=true;}if self.shot.is_some()&&self.frames>300&&!self.screenshot_ok{eprintln!("Screenshot timeout");ctx.send_viewport_cmd(ViewportCommand::Close);}
   if let Some(wait)=self.next_frame_in(){ctx.request_repaint_after(wait);}
+ }
+ /// macOS tells a window where the pointer is only while its app is in front and the window takes
+ /// the mouse, and the floating timer is mostly neither. So the pointer is followed by hand there
+ /// (win_mac.rs `follow_pointer`, which also lets clicks through the empty parts) and given to
+ /// egui here as if the window had been told: the hover buttons then appear as on Windows.
+ fn raw_input_hook(&mut self,ctx:&Context,raw:&mut RawInput){
+  if !win::FOLLOWS_POINTER||!self.overlay||raw.viewport_id!=ViewportId::ROOT{return;}let Some(h)=self.hwnd else{return};
+  let at=win::follow_pointer(h);if at==self.pointer_at{return;}self.pointer_at=at;
+  match at{Some((x,y))=>{let k=win::units_per_point(ctx);raw.events.push(Event::PointerMoved(pos2(x as f32/k,y as f32/k)));},None if self.gesture.is_none()=>raw.events.push(Event::PointerGone),None=>{}}
  }
  /// Clear to see-through: the editor's panels cover every pixel, the floating timer leaves the rest empty.
  fn clear_color(&self,_visuals:&egui::Visuals)->[f32;4]{[0.0;4]}

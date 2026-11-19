@@ -3,7 +3,7 @@
 //! The released program has no console (main.rs `windows_subsystem`), so a start that fails or a
 //! fault in the middle of an event would only make the window vanish. Both are written to a log
 //! file beside the program instead and, unless the run is a check that must not stop for
-//! anyone (`--silent`, `--screenshot`), shown in a message box.
+//! anyone (`--silent`, `--screenshot`), shown in a message box (an alert on macOS).
 
 use crate::lang::{t, tf};
 use std::fmt::Display;
@@ -75,7 +75,17 @@ fn show(text: &str) {
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST) };
 }
 
-#[cfg(not(windows))]
+/// An alert of the system's own, asked of `osascript`; the text goes along as an argument, so
+/// nothing in it is read as script.
+#[cfg(target_os = "macos")]
+fn show(text: &str) {
+    let script = ["-e", "on run argv", "-e", "display alert \"Event Studio\" message (item 1 of argv) as critical", "-e", "end run", "--"];
+    if std::process::Command::new("/usr/bin/osascript").args(script).arg(text).status().is_err() {
+        eprintln!("{text}");
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn show(text: &str) {
     eprintln!("{text}");
 }
