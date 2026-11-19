@@ -34,9 +34,9 @@ fn float_press(ctx:&Context,app:&mut Studio,cmd:controls::Cmd){let at=app.float_
  for _ in 0..30{let _=ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,FLOAT_MIN)),..Default::default()},|ctx|app.floating(ctx));}
  assert_eq!(app.float_buttons.len(),5);assert!(app.float_buttons.iter().all(|b|Rect::from_min_size(Pos2::ZERO,FLOAT_MIN).expand(1.0).contains_rect(b.1)));
 }
-fn painted_parts(mode:Mode,backdrop:f32)->Vec<overlay::Solid>{let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);let mut s=Settings::default();s.mode=mode;s.overlay_backdrop=backdrop;let v=Clock::new(300.0).view(0.0,60.0,false,true,false);let rect=Rect::from_min_size(Pos2::ZERO,FLOAT_SIZE);let mut solid=Vec::new();let _=ctx.run(RawInput{screen_rect:Some(rect),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::NONE).show(ctx,|ui|{solid=overlay::paint(ui.painter(),rect,&s,&v,"",&HashMap::new());});});solid}
+fn painted_parts(mode:Mode,backdrop:f32)->Vec<overlay::Solid>{let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);let mut s=Settings::default();s.mode=mode;s.overlay_backdrop=backdrop;let v=Clock::new(300.0).view(0.0,60.0,false,true,false);let rect=Rect::from_min_size(Pos2::ZERO,FLOAT_SIZE);let mut solid=Vec::new();let _=ctx.run(RawInput{screen_rect:Some(rect),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::NONE).show(ctx,|ui|{solid=overlay::paint(ui.painter(),rect,&s,&v,"",&Pictures::default());});});solid}
 // What the floating timer paints in a window of `size` with these settings.
-fn painted_with(s:&Settings,size:Vec2)->Vec<overlay::Solid>{let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);let v=Clock::new(300.0).view(0.0,60.0,false,true,false);let rect=Rect::from_min_size(Pos2::ZERO,size);let mut solid=Vec::new();let _=ctx.run(RawInput{screen_rect:Some(rect),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::NONE).show(ctx,|ui|{solid=overlay::paint(ui.painter(),rect,s,&v,"",&HashMap::new());});});solid}
+fn painted_with(s:&Settings,size:Vec2)->Vec<overlay::Solid>{let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);let v=Clock::new(300.0).view(0.0,60.0,false,true,false);let rect=Rect::from_min_size(Pos2::ZERO,size);let mut solid=Vec::new();let _=ctx.run(RawInput{screen_rect:Some(rect),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::NONE).show(ctx,|ui|{solid=overlay::paint(ui.painter(),rect,s,&v,"",&Pictures::default());});});solid}
 fn ring_of(solid:&[overlay::Solid])->(Pos2,f32){solid.iter().find_map(|a|match a{overlay::Solid::Disc(c,r)=>Some((*c,*r)),_=>None}).expect("a ring")}
 // "배경이 투명하게": with brand, event name and logos shown, the floating timer still has no background.
 #[test] fn floating_timer_with_titles_keeps_the_background_see_through(){
@@ -160,7 +160,7 @@ fn stage_of(brand:bool,event:bool,subtitle:bool,top_logos:Option<f32>)->scene::S
 }
 #[test] fn the_drawn_timer_grows_as_the_header_empties(){
  let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);
- let draw=|s:&Settings|{let mut out=Rect::NOTHING;let _=ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,vec2(850.0,590.0))),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::new()).show(ctx,|ui|{let v=Clock::new(300.0).view(0.0,60.0,false,true,false);out=scene::render(ui.painter(),ui.max_rect(),s,&v,&HashMap::new(),false,false);});});out};
+ let draw=|s:&Settings|{let mut out=Rect::NOTHING;let _=ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,vec2(850.0,590.0))),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::new()).show(ctx,|ui|{let v=Clock::new(300.0).view(0.0,60.0,false,true,false);out=scene::render(ui.painter(),ui.max_rect(),s,&v,&Pictures::default(),false,false);});});out};
  for mode in [Mode::Circle,Mode::Bar,Mode::Number]{
   let mut s=Settings::default();s.mode=mode.clone();assert!(!s.brand.is_empty()&&!s.event.is_empty()&&!s.subtitle.is_empty());let full=draw(&s);
   s.event.clear();let no_event=draw(&s);s.subtitle.clear();let no_titles=draw(&s);s.brand.clear();let bare=draw(&s);
@@ -177,4 +177,64 @@ fn stage_of(brand:bool,event:bool,subtitle:bool,top_logos:Option<f32>)->scene::S
   assert!((at.x-want.x).abs()<1e-3&&(at.y-want.y).abs()<1e-3,"{at:?} {want:?}");
   assert!(((at.x*1.5).round()-at.x*1.5).abs()<1e-3&&((at.y*1.5).round()-at.y*1.5).abs()<1e-3,"{at:?} is not on a whole pixel");
  }
+}
+// 자동: on the dark stage a logo that would get lost is shown white (1.1.0 showed the white version of its logo on a
+// dark background and the colour version on a light one); logos that stand out, and every logo on a light background, keep their colours.
+#[test] fn auto_tone_whitens_only_logos_lost_on_a_dark_background(){
+ let stage=scene::behind(&Settings::default(),&Pictures::default());
+ let dark_green=[1.0/255.0,26.0/255.0,10.0/255.0];
+ assert!(needs_white(dark_green,stage),"dark green");
+ assert!(needs_white([0.1,0.17,0.37],stage),"navy");
+ assert!(needs_white([0.27,0.27,0.27],stage),"dark grey");
+ assert!(!needs_white([0.82,0.01,0.11],stage),"red stands out enough");
+ assert!(!needs_white([0.0,0.44,0.94],stage),"blue stands out");
+ assert!(!needs_white([0.96,0.65,0.14],stage),"orange stands out");
+ assert!(!needs_white(dark_green,[0.92,0.92,0.92]),"on a light background the colours stay");
+ assert!(!needs_white(dark_green,[0.55,0.55,0.55]),"mid grey is not a dark background");
+}
+// The white copy is the picture with every pixel white and its transparency kept; the mean colour leaves out what is transparent.
+#[test] fn white_copy_keeps_transparency_and_mean_colour_skips_it(){
+ let im=image::RgbaImage::from_raw(2,2,vec![1,26,10,255, 1,26,10,128, 200,0,0,0, 0,0,0,0]).unwrap();
+ assert_eq!(white_copy(&im),vec![255,255,255,255, 255,255,255,128, 255,255,255,0, 255,255,255,0]);
+ let(mean,opaque)=mean_color(&im);
+ assert!((mean[0]-1.0/255.0).abs()<1e-6&&(mean[1]-26.0/255.0).abs()<1e-6&&(mean[2]-10.0/255.0).abs()<1e-6,"{mean:?}");
+ assert!((opaque-(255.0+128.0)/255.0/4.0).abs()<1e-6,"{opaque}");
+ assert_eq!(mean_color(&image::RgbaImage::new(3,3)),([0.0;3],0.0),"nothing opaque");
+ // A colour transform keeps a channel at multiplier 256 and offset 0, and stays within 0..255.
+ for c in [0u8,1,128,254,255]{assert_eq!(transform_channel(c,256,0),c);assert_eq!(transform_channel(c,0,255),255);}
+ assert_eq!((transform_channel(200,512,0),transform_channel(10,256,-20),transform_channel(100,128,10)),(255,0,60));
+}
+// What the logos sit on: without a picture the stage's dark gradient, with one its mean colour darkened by 어둡게.
+#[test] fn behind_the_logos_is_the_dimmed_background_or_the_gradient(){
+ let ctx=Context::default();let mut pics=Pictures::default();let mut s=Settings::default();
+ let plain=scene::behind(&s,&pics);assert!(luminance(plain)<0.02,"the stage without a picture is dark: {plain:?}");
+ s.background="assets/background.png".into();s.dim=0.5;assert_eq!(scene::behind(&s,&pics),plain,"a picture that didn't load changes nothing");
+ pics.own.insert(s.background.clone(),ctx.load_texture("bg",ColorImage::new([1,1],Color32::WHITE),TextureOptions::LINEAR));pics.mean.insert(s.background.clone(),([1.0,1.0,1.0],1.0));
+ assert_eq!(scene::behind(&s,&pics),[0.5;3]);
+ s.dim=0.0;assert_eq!(scene::behind(&s,&pics),[1.0;3]);
+ pics.mean.insert(s.background.clone(),([1.0,1.0,1.0],0.5));let half=scene::behind(&s,&pics);assert!((half[0]-(1.0+18.0/255.0)/2.0).abs()<1e-6,"half transparent: over the base {half:?}");
+}
+// A dark green logo at the top right and only a subtitle: 자동 draws the white copy on the stage and the
+// logo's own colours on the floating timer, over the slides; 원래 색 and 흰색 do what they say, 흰색 with a halo when floating.
+#[test] fn the_stage_draws_a_dark_logo_white(){
+ let ctx=Context::default();install_fonts(&ctx,Lang::Ko,false);
+ let im=image::RgbaImage::from_pixel(40,12,image::Rgba([1,26,10,255]));let name="assets/brand-logo.png".to_string();
+ let mut pics=Pictures::default();
+ pics.own.insert(name.clone(),ctx.load_texture("own",ColorImage::from_rgba_unmultiplied([40,12],im.as_raw()),TextureOptions::LINEAR));
+ pics.white.insert(name.clone(),ctx.load_texture("white",ColorImage::from_rgba_unmultiplied([40,12],&white_copy(&im)),TextureOptions::LINEAR));
+ pics.mean.insert(name.clone(),mean_color(&im));
+ let(own,white)=(pics.own[&name].id(),pics.white[&name].id());
+ let mut s=Settings::default();s.logo=name.clone();s.brand.clear();s.event.clear();s.subtitle="세션".into();
+ let drawn=|s:&Settings,floating:bool|{let out=ctx.run(RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,vec2(850.0,590.0))),..Default::default()},|ctx|{CentralPanel::default().frame(Frame::NONE).show(ctx,|ui|{let v=Clock::new(300.0).view(0.0,60.0,false,true,false);if floating{let _=overlay::paint(ui.painter(),ui.max_rect(),s,&v,"",&pics);}else{let _=scene::render(ui.painter(),ui.max_rect(),s,&v,&pics,false,false);}});});
+  out.shapes.iter().filter_map(|c|match &c.shape{Shape::Mesh(m)=>Some(m.texture_id),_=>None}).filter(|id|*id==own||*id==white).collect::<Vec<_>>()};
+ assert_eq!(drawn(&s,false),[white],"자동 on the stage");
+ s.overlay_scene=true;assert_eq!(drawn(&s,true),[own],"자동 on the floating timer keeps the colours");
+ s.logo_tone=Tone::Own;assert_eq!(drawn(&s,false),[own],"원래 색");
+ s.logo_tone=Tone::White;assert_eq!(drawn(&s,false),[white],"흰색");
+ let floating=drawn(&s,true);assert_eq!(floating.len(),17,"흰색 when floating: 16 halo copies and the logo");assert!(floating.iter().all(|id|*id==white));
+}
+// Saved settings from before have no logo colour: they start with 자동, and a choice is kept.
+#[test] fn saved_settings_without_a_logo_colour_start_with_auto(){
+ let s:Settings=serde_json::from_str(r#"{"logo":"assets/brand-logo.png"}"#).unwrap();assert_eq!(s.logo_tone,Tone::Auto);
+ let mut w=s.clone();w.logo_tone=Tone::White;let back:Settings=serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap();assert_eq!(back.logo_tone,Tone::White);
 }

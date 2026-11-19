@@ -18,6 +18,17 @@ const AREA_GAP:f32=12.8; // between the header and the timer's room (with every 
 const FOOT:f32=44.0; // the status line at the bottom
 const AREA_FULL:f32=372.2; // the timer's room while brand, event name and subtitle are all shown
 const RING_RADIUS:f32=138.65; // the ring in that room
+const BASE:[u8;3]=[18,27,35]; // under everything, and around a background image that doesn't cover the stage
+const GRADIENT:[[u8;3];4]=[[24,42,47],[15,25,37],[17,26,35],[20,34,39]]; // corners from top left, clockwise, without a background image
+/// The colour the stage shows behind its logos: the background image's mean colour over the base,
+/// darkened by 어둡게; without an image, the mean of the gradient's corners.
+pub(super) fn behind(s:&Settings,pics:&Pictures)->[f32;3]{
+ let f=|c:[u8;3]|c.map(|v|v as f32/255.0);
+ match pics.mean.get(&s.background).filter(|_|pics.contains_key(&s.background)){
+  Some((mean,opaque))=>{let base=f(BASE);[0,1,2].map(|i|(mean[i]*opaque+base[i]*(1.0-opaque))*(1.0-s.dim))},
+  None=>[0,1,2].map(|i|GRADIENT.iter().map(|c|f(*c)[i]).sum::<f32>()/4.0),
+ }
+}
 /// What the header has to show.
 #[derive(Clone,Copy,Default)]
 pub(super) struct Header{pub brand:bool,pub event:bool,pub subtitle:bool,
@@ -52,11 +63,11 @@ pub(super) fn layout(rect:Rect,scale:f32,h:Header)->Stage{
  stage
 }
 /// Paints the event stage and returns where the timer itself is (hover buttons go on it).
-pub(super) fn render(p:&Painter,rect:Rect,s:&Settings,v:&timer::View,textures:&HashMap<String,TextureHandle>,qna:bool,running:bool)->Rect{
+pub(super) fn render(p:&Painter,rect:Rect,s:&Settings,v:&timer::View,textures:&Pictures,qna:bool,running:bool)->Rect{
  let p=p.with_clip_rect(rect);let a=s.accent();let scale=(rect.width()/850.0).min(rect.height()/590.0).max(0.35);
- p.rect_filled(rect,12,Color32::from_rgb(18,27,35));
+ p.rect_filled(rect,12,Color32::from_rgb(BASE[0],BASE[1],BASE[2]));
  if let Some(t)=textures.get(&s.background){paint_image(&p,t,rect,s.cover);p.rect_filled(rect,0,Color32::from_black_alpha((s.dim*255.0) as u8));}else{
-  let mut mesh=egui::epaint::Mesh::default();let colors=[Color32::from_rgb(24,42,47),Color32::from_rgb(15,25,37),Color32::from_rgb(17,26,35),Color32::from_rgb(20,34,39)];
+  let mut mesh=egui::epaint::Mesh::default();let colors=GRADIENT.map(|c|Color32::from_rgb(c[0],c[1],c[2]));
   for(pos,col)in[rect.left_top(),rect.right_top(),rect.right_bottom(),rect.left_bottom()].into_iter().zip(colors){mesh.colored_vertex(pos,col);}mesh.add_triangle(0,1,2);mesh.add_triangle(0,2,3);p.add(Shape::mesh(mesh));
   for i in 0..5{let rr=rect.width()*0.45+i as f32*46.0*scale;p.circle_stroke(pos2(rect.right()+rect.width()*0.1,rect.top()-rect.height()*0.15),rr,Stroke::new(1.0_f32,Color32::from_rgba_unmultiplied(132,226,190,9)));}
  }
@@ -67,8 +78,8 @@ pub(super) fn render(p:&Painter,rect:Rect,s:&Settings,v:&timer::View,textures:&H
  let(brand,event,subtitle)=(s.brand.trim(),s.event.trim(),s.subtitle.trim());
  let stage=layout(rect,scale,Header{brand:!brand.is_empty(),event:!event.is_empty(),subtitle:!subtitle.is_empty(),top_logos:(count>0&&s.logo_position<3).then(||LOGO_BOX.y*s.logo_size/100.0)});
  if let Some(y)=stage.brand{p.text(pos2(rect.left()+pad,y),Align2::LEFT_CENTER,brand,FontId::proportional(15.0*scale),a);}
- let width=count as f32*logo_box.x+(count.saturating_sub(1)) as f32*12.0*scale;
- for(idx,key)in[&s.logo,&s.logo2].into_iter().filter(|key|textures.contains_key(*key)).enumerate(){if let Some(t)=textures.get(key){let left=match s.logo_position%3{0=>rect.left()+pad,1=>rect.center().x-width/2.0,_=>rect.right()-pad-width};let y=match stage.logos{Some(top)=>top+logo_box.y*0.5,None=>rect.bottom()-pad-logo_box.y*0.5-18.0*scale};let center=pos2(left+logo_box.x*0.5+idx as f32*(logo_box.x+12.0*scale),y);paint_image(&p,t,Rect::from_center_size(center,logo_box),false);}}
+ let width=count as f32*logo_box.x+(count.saturating_sub(1)) as f32*12.0*scale;let bg=behind(s,textures);
+ for(idx,key)in[&s.logo,&s.logo2].into_iter().filter(|key|textures.contains_key(*key)).enumerate(){if let Some((t,_))=textures.logo(key,s.logo_tone,Some(bg)){let left=match s.logo_position%3{0=>rect.left()+pad,1=>rect.center().x-width/2.0,_=>rect.right()-pad-width};let y=match stage.logos{Some(top)=>top+logo_box.y*0.5,None=>rect.bottom()-pad-logo_box.y*0.5-18.0*scale};let center=pos2(left+logo_box.x*0.5+idx as f32*(logo_box.x+12.0*scale),y);paint_image(&p,t,Rect::from_center_size(center,logo_box),false);}}
  if let Some(y)=stage.event{fit_text(&p,pos2(rect.center().x,y),event,rect.width()-pad*2.0,27.0*scale,WHITE);}
  if let Some(y)=stage.subtitle{fit_text(&p,pos2(rect.center().x,y),subtitle,rect.width()-pad*2.0,12.0*scale,MUTED);}
  let color=phase_color(v.phase,a);

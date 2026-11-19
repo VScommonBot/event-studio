@@ -134,7 +134,7 @@ const TITLES_MOST: f32 = 0.5;
 
 /// Brand, event name, subtitle and logos for the floating timer, drawn straight onto the
 /// see-through window. Returns the room left for the timer.
-fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &HashMap<String, TextureHandle>, solid: &mut Vec<Solid>) -> Rect {
+fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &Pictures, solid: &mut Vec<Solid>) -> Rect {
     // Font sizes, line height, gaps and logo height at scale 1.
     const LINE: f32 = 1.3;
     const GAP: f32 = 2.0;
@@ -145,7 +145,9 @@ fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &HashMap<String, Text
         .into_iter()
         .filter(|line| !line.0.is_empty())
         .collect();
-    let logos: Vec<&TextureHandle> = [&s.logo, &s.logo2].into_iter().filter_map(|key| textures.get(key)).collect();
+    // What is behind the floating timer is whatever slide is up, so 자동 keeps a logo's own colours
+    // here; 흰색 makes it white, with the same dark halo as the text.
+    let logos: Vec<(&TextureHandle, bool)> = [&s.logo, &s.logo2].into_iter().filter_map(|key| textures.logo(key, s.logo_tone, None)).collect();
     if lines.is_empty() && logos.is_empty() {
         return rect;
     }
@@ -165,7 +167,7 @@ fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &HashMap<String, Text
         let gap = 6.0 * k;
         let boxes: Vec<Vec2> = logos
             .iter()
-            .map(|t| {
+            .map(|(t, _)| {
                 let size = t.size_vec2();
                 let w = (h * size.x / size.y.max(1.0)).min(rect.width() * 0.45);
                 vec2(w, w * size.y / size.x.max(1.0))
@@ -178,9 +180,19 @@ fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &HashMap<String, Text
             _ => rect.right() - PAD * k - row,
         };
         let mut drawn = Vec::new();
-        for (t, b) in logos.iter().zip(&boxes) {
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        for ((t, white), b) in logos.iter().zip(&boxes) {
             let at = Rect::from_min_size(pos2(x, top + (h - b.y) / 2.0), *b);
-            p.image(t.id(), at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            if *white {
+                // The white copy tinted dark makes the halo, as halo_text does for letters.
+                let around = [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)];
+                for (reach, color) in [(h * 0.05, HALO.gamma_multiply(0.22)), (h * 0.03, HALO)] {
+                    for (dx, dy) in around {
+                        p.image(t.id(), at.translate(vec2(dx, dy) * reach), uv, color);
+                    }
+                }
+            }
+            p.image(t.id(), at, uv, Color32::WHITE);
             drawn.push(Solid::Rect(at));
             x += b.x + gap;
         }
@@ -210,7 +222,7 @@ fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &HashMap<String, Text
 /// Nothing is behind it: the window stays see-through unless the person asked for a
 /// backdrop (style.css `--backdrop`). With `overlay_scene` the brand, event name, subtitle
 /// and logos come along above the timer, still on nothing.
-pub(super) fn paint(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, status: &str, textures: &HashMap<String, TextureHandle>) -> Vec<Solid> {
+pub(super) fn paint(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, status: &str, textures: &Pictures) -> Vec<Solid> {
     let mut solid = Vec::new();
     if s.overlay_backdrop > 0.0 {
         p.rect_filled(rect, 16, HALO.gamma_multiply(s.overlay_backdrop));

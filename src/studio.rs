@@ -50,11 +50,15 @@ fn ring(p:&Painter,c:Pos2,r:f32,width:f32,color:Color32){let n=180;let pts=(0..n
 /// `at` moved onto the nearest whole pixel: a ring drawn around it gets the same edge on every side.
 fn on_pixels(p:&Painter,at:Pos2)->Pos2{let ppp=p.ctx().pixels_per_point();pos2((at.x*ppp).round()/ppp,(at.y*ppp).round()/ppp)}
 #[derive(Clone,Serialize,Deserialize,PartialEq,Debug)] enum Mode{Circle,Bar,Number}
+/// How the logos are coloured: 자동 (on the stage a logo that would get lost on its dark
+/// background is shown white, the way VS Event Timer 1.1.0 showed the white version of its logo on
+/// a dark background and the colour version on a light one), 원래 색 or 흰색.
+#[derive(Clone,Copy,Serialize,Deserialize,PartialEq,Debug)] enum Tone{Auto,Own,White}
 #[derive(Clone,Serialize,Deserialize)] #[serde(default)]
 struct Settings{
  brand:String,event:String,subtitle:String,mode:Mode,duration:f64,warning:f64,
  qna_enabled:bool,qna_duration:f64,carry:bool,count_up:bool,overtime:bool,seconds_only:bool,
- background:String,logo:String,logo2:String,dim:f32,cover:bool,logo_position:usize,logo_size:f32,
+ background:String,logo:String,logo2:String,dim:f32,cover:bool,logo_position:usize,logo_size:f32,logo_tone:Tone,
  accent:[u8;3],sound:bool,volume:f32,sound_file:String,pin:bool,
  /// Floating timer: open the app as it, how dark its backdrop is (0 = see-through), show the
  /// brand, event name and logos in it too, where it was last (physical pixels) and whether
@@ -68,7 +72,7 @@ struct Settings{
 const SCHEMA:u32=2;
 impl Default for Settings{fn default()->Self{Self{
  brand:"YOUR BRAND".into(),event:FIRST_EVENT.into(),subtitle:"2026  ·  INSPIRATION SESSION".into(),mode:Mode::Circle,duration:timer::DEFAULT_SECONDS,warning:timer::DEFAULT_WARNING,
- qna_enabled:false,qna_duration:timer::DEFAULT_SECONDS,carry:true,count_up:false,overtime:true,seconds_only:false,background:String::new(),logo:String::new(),logo2:String::new(),dim:0.55,cover:true,logo_position:2,logo_size:100.0,accent:[132,226,190],sound:true,volume:0.8,sound_file:String::new(),pin:false,
+ qna_enabled:false,qna_duration:timer::DEFAULT_SECONDS,carry:true,count_up:false,overtime:true,seconds_only:false,background:String::new(),logo:String::new(),logo2:String::new(),dim:0.55,cover:true,logo_position:2,logo_size:100.0,logo_tone:Tone::Auto,accent:[132,226,190],sound:true,volume:0.8,sound_file:String::new(),pin:false,
  overlay_start:false,overlay_backdrop:0.0,overlay_scene:false,overlay_rect:None,overlay_top_right:true,hotkeys:false,schema:0,language:Lang::Ko}}}
 impl Settings{
  /// The settings of a very first start, when nothing is saved yet: in the language Windows is shown in
@@ -86,7 +90,7 @@ impl Settings{
 /// A press on the floating timer: where the pointer and the window started (physical pixels).
 #[derive(Clone,Copy,Debug)] struct Gesture{kind:GestureKind,cursor:(i32,i32),rect:win::PxRect,moved:bool}
 struct Studio{
- s:Settings,clock:Clock,epoch:Instant,root:PathBuf,textures:HashMap<String,TextureHandle>,tab:usize,status:String,last_saved:String,dirty_since:Option<Instant>,presentation:bool,audience:bool,audience_full:bool,confirm_reset:bool,prior_phase:Phase,shot:Option<PathBuf>,frames:u32,shot_requested:bool,screenshot_ok:bool,
+ s:Settings,clock:Clock,epoch:Instant,root:PathBuf,textures:Pictures,tab:usize,status:String,last_saved:String,dirty_since:Option<Instant>,presentation:bool,audience:bool,audience_full:bool,confirm_reset:bool,prior_phase:Phase,shot:Option<PathBuf>,frames:u32,shot_requested:bool,screenshot_ok:bool,
  /// The window is the floating timer (no background, always on top) instead of the editor.
  overlay:bool,hwnd:Option<isize>,editor_rect:Option<win::PxRect>,geometry:Option<(win::PxRect,u32)>,place_overlay:bool,last_topmost:f64,
  activity:Instant,audience_activity:Instant,bars:HashMap<&'static str,Rect>,float_buttons:Vec<(controls::Cmd,Rect)>,gesture:Option<Gesture>,flash_since:Option<Instant>,force_controls:bool,
@@ -110,6 +114,8 @@ struct Studio{
  packer:Option<Packer>,
  /// One more font is loaded for characters the language's own fonts lack; `font_text` is the text last looked at.
  wide_fonts:bool,font_text:String,
+ /// For checks (`--demo panelend`): the settings panel starts scrolled to its end.
+ panel_end:bool,
 }
 /// The 설치 파일 만들기 window: whether the settings go along, and how the last try ended.
 struct Packer{with_settings:bool,made:Option<PathBuf>,error:Option<String>}
@@ -120,9 +126,54 @@ fn load_image(path:&Path)->Result<image::RgbaImage,String>{
  let dims=image::image_dimensions(path).map_err(|e|e.to_string())?;if dims.0>8192||dims.1>8192{return Err(t("이미지는 가로·세로 8192px 이하로 선택해주세요.").into());}
  image::open(path).map(|i|i.to_rgba8()).map_err(|e|e.to_string())
 }
+/// A logo that stands out from what is behind it by less than this contrast ratio is lost on it, and
+/// 자동 shows it white. (Red on the dark stage, about 3 : 1, keeps its colour; navy, about 1.2 : 1, and
+/// dark green, about 1.1 : 1, do not.)
+const LOGO_CONTRAST:f32=2.0;
+/// The pictures the person chose, ready to draw: each file's texture with the mean colour of what is
+/// not transparent in it (sRGB 0..1, weighted by opacity) and how opaque it is overall, and for each
+/// logo a white copy.
+#[derive(Default)]
+pub(crate) struct Pictures{own:HashMap<String,TextureHandle>,white:HashMap<String,TextureHandle>,mean:HashMap<String,([f32;3],f32)>}
+impl Pictures{
+ fn get(&self,name:&str)->Option<&TextureHandle>{self.own.get(name)}
+ fn contains_key(&self,name:&str)->bool{self.own.contains_key(name)}
+ /// The logo `name` as it is drawn on a background of colour `behind` (`None`: not known, as under the
+ /// floating timer, where the slides are), and whether that is its white copy.
+ fn logo(&self,name:&str,tone:Tone,behind:Option<[f32;3]>)->Option<(&TextureHandle,bool)>{
+  let own=self.own.get(name)?;
+  let white=match tone{Tone::Own=>false,Tone::White=>true,Tone::Auto=>matches!((behind,self.mean.get(name)),(Some(bg),Some((logo,_))) if needs_white(*logo,bg))};
+  Some(match self.white.get(name){Some(w) if white=>(w,true),_=>(own,false)})
+ }
+}
+/// The mean colour of what is not transparent in a picture (sRGB 0..1, weighted by opacity) and its
+/// mean opacity, from at most about 260 000 of its pixels.
+fn mean_color(im:&image::RgbaImage)->([f32;3],f32){
+ let px=im.as_raw().chunks_exact(4);let n=px.len();let step=(n/262_144).max(1);
+ let(mut sum,mut alpha,mut count)=([0.0f64;3],0.0f64,0usize);
+ for p in px.step_by(step){let a=p[3] as f64/255.0;for i in 0..3{sum[i]+=p[i] as f64/255.0*a;}alpha+=a;count+=1;}
+ if alpha<=0.0{return([0.0;3],0.0);}
+ (sum.map(|v|(v/alpha) as f32),(alpha/count as f64) as f32)
+}
+/// One channel through a colour transform: the multiplier in 1/256 (256 keeps the channel as it is),
+/// the offset in colour units, the result kept within 0..255.
+fn transform_channel(c:u8,multiplier:i32,offset:i32)->u8{((c as i32*multiplier>>8)+offset).clamp(0,255) as u8}
+/// The picture with every pixel white and its transparency kept: multipliers 0 and offsets 255 on
+/// red, green and blue, multiplier 256 and offset 0 on the alpha.
+fn white_copy(im:&image::RgbaImage)->Vec<u8>{im.as_raw().chunks_exact(4).flat_map(|p|[transform_channel(p[0],0,255),transform_channel(p[1],0,255),transform_channel(p[2],0,255),transform_channel(p[3],256,0)]).collect()}
+/// Relative luminance of an sRGB colour (0..1 per channel), as WCAG 2.1 defines it.
+fn luminance(c:[f32;3])->f32{let lin=|v:f32|if v<=0.04045{v/12.92}else{((v+0.055)/1.055).powf(2.4)};0.2126*lin(c[0])+0.7152*lin(c[1])+0.0722*lin(c[2])}
+/// Contrast ratio of two luminances, from 1 (none) to 21.
+fn contrast(a:f32,b:f32)->f32{(a.max(b)+0.05)/(a.min(b)+0.05)}
+/// Whether a logo of mean colour `logo` would get lost on a background of colour `behind`, so that
+/// 자동 shows it white: the background is dark (white stands out on it more than black does) and the
+/// logo stands out from it by less than `LOGO_CONTRAST`. A logo that already stands out keeps its
+/// colours, and on a light background every logo keeps them.
+fn needs_white(logo:[f32;3],behind:[f32;3])->bool{let bg=luminance(behind);contrast(1.0,bg)>contrast(0.0,bg)&&contrast(luminance(logo),bg)<LOGO_CONTRAST}
+fn rgb(c:Color32)->[f32;3]{[c.r() as f32/255.0,c.g() as f32/255.0,c.b() as f32/255.0]}
 impl Studio{
- fn bare(s:Settings,root:PathBuf,shot:Option<PathBuf>)->Self{let last_saved=serde_json::to_string(&s).unwrap();Self{clock:Clock::new(s.duration),s,epoch:Instant::now(),root,textures:HashMap::new(),tab:0,status:t("설정은 자동으로 저장됩니다").into(),last_saved,dirty_since:None,presentation:false,audience:false,audience_full:false,confirm_reset:false,prior_phase:Phase::Ready,shot,frames:0,shot_requested:false,screenshot_ok:false,
-  overlay:false,hwnd:None,editor_rect:None,geometry:None,place_overlay:false,last_topmost:0.0,activity:Instant::now(),audience_activity:Instant::now(),bars:HashMap::new(),float_buttons:Vec::new(),gesture:None,flash_since:None,force_controls:false,pulse:None,auto_float:None,auto_back:None,auto_language:None,hotkeys:None,hotkey_failed:false,digit_hotkeys:None,digit_failed:false,hit_region:None,packer:None,wide_fonts:false,font_text:String::new()}}
+ fn bare(s:Settings,root:PathBuf,shot:Option<PathBuf>)->Self{let last_saved=serde_json::to_string(&s).unwrap();Self{clock:Clock::new(s.duration),s,epoch:Instant::now(),root,textures:Pictures::default(),tab:0,status:t("설정은 자동으로 저장됩니다").into(),last_saved,dirty_since:None,presentation:false,audience:false,audience_full:false,confirm_reset:false,prior_phase:Phase::Ready,shot,frames:0,shot_requested:false,screenshot_ok:false,
+  overlay:false,hwnd:None,editor_rect:None,geometry:None,place_overlay:false,last_topmost:0.0,activity:Instant::now(),audience_activity:Instant::now(),bars:HashMap::new(),float_buttons:Vec::new(),gesture:None,flash_since:None,force_controls:false,pulse:None,auto_float:None,auto_back:None,auto_language:None,hotkeys:None,hotkey_failed:false,digit_hotkeys:None,digit_failed:false,hit_region:None,packer:None,wide_fonts:false,font_text:String::new(),panel_end:false}}
  fn new(cc:&eframe::CreationContext<'_>,shot:Option<PathBuf>,demo:Option<String>,floating:bool,language:Option<Lang>)->Self{
   let ctx=&cc.egui_ctx;
   let root=app_root();let(mut s,warning)=load_settings(&root);
@@ -132,7 +183,7 @@ impl Studio{
   let demos:Vec<&str>=demo.as_deref().map(|d|d.split(',').collect()).unwrap_or_default();
   for d in &demos{match *d{"circle"=>s.mode=Mode::Circle,"bar"=>s.mode=Mode::Bar,"number"=>s.mode=Mode::Number,_=>{}}}
   let mut app=Self::bare(s,root,shot);if let Some(w)=warning{app.status=w;}if app.s.pin&&!floating{ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));}
-  for d in &demos{match *d{"warning"=>app.clock.accumulated=245.0,"over"=>app.clock.accumulated=312.0,"hover"=>{app.clock.accumulated=95.0;app.force_controls=true;},"pulse"=>app.pulse=Some((5.0,7.5)),"float"=>app.auto_float=Some(90),"back"=>app.auto_back=Some(600),"to-ko"|"to-en"|"to-zh"|"to-ja"=>app.auto_language=Lang::from_code(&d[3..]),"timetab"=>app.tab=1,"floattab"=>app.tab=2,"packer"=>app.packer=Some(Packer{with_settings:true,made:None,error:None}),"packed"=>app.packer=Some(Packer{with_settings:true,made:Some(app.root.join(setup::SETUP_NAME)),error:None}),_=>{}}}
+  for d in &demos{match *d{"warning"=>app.clock.accumulated=245.0,"over"=>app.clock.accumulated=312.0,"hover"=>{app.clock.accumulated=95.0;app.force_controls=true;},"pulse"=>app.pulse=Some((5.0,7.5)),"float"=>app.auto_float=Some(90),"back"=>app.auto_back=Some(600),"to-ko"|"to-en"|"to-zh"|"to-ja"=>app.auto_language=Lang::from_code(&d[3..]),"timetab"=>app.tab=1,"floattab"=>app.tab=2,"panelend"=>app.panel_end=true,"packer"=>app.packer=Some(Packer{with_settings:true,made:None,error:None}),"packed"=>app.packer=Some(Packer{with_settings:true,made:Some(app.root.join(setup::SETUP_NAME)),error:None}),_=>{}}}
   // (A check's hidden window stays where it was put, beyond the screen.)
   app.overlay=floating;app.place_overlay=floating&&!demos.contains(&"hidden");app.reload_images(ctx);app
  }
@@ -140,7 +191,8 @@ impl Studio{
  fn started(&self)->bool{self.clock.qna||self.clock.elapsed(self.now())>0.0}
  fn controls_forced(&self)->bool{self.force_controls||self.pulse.is_some_and(|(from,to)|(from..to).contains(&self.now()))}
  fn control_state(&self)->controls::State{controls::State{running:self.clock.running(),started:self.started(),accent:self.s.accent()}}
- fn reload_images(&mut self,ctx:&Context){self.textures.clear();for name in [&self.s.background,&self.s.logo,&self.s.logo2]{if name.is_empty(){continue;}match load_image(&self.root.join(name)){Ok(im)=>{let size=[im.width() as usize,im.height() as usize];self.textures.insert(name.clone(),ctx.load_texture(name,ColorImage::from_rgba_unmultiplied(size,im.as_raw()),TextureOptions::LINEAR));},Err(e)=>self.status=tf!("이미지 불러오기 실패: {0}",e)}}}
+ fn reload_images(&mut self,ctx:&Context){self.textures=Pictures::default();for(slot,name)in [&self.s.background,&self.s.logo,&self.s.logo2].into_iter().enumerate(){if name.is_empty(){continue;}match load_image(&self.root.join(name)){Ok(im)=>{let size=[im.width() as usize,im.height() as usize];let pics=&mut self.textures;pics.own.insert(name.clone(),ctx.load_texture(name,ColorImage::from_rgba_unmultiplied(size,im.as_raw()),TextureOptions::LINEAR));pics.mean.insert(name.clone(),mean_color(&im));
+   if slot>0{pics.white.insert(name.clone(),ctx.load_texture(format!("{name} (white)"),ColorImage::from_rgba_unmultiplied(size,&white_copy(&im)),TextureOptions::LINEAR));}},Err(e)=>self.status=tf!("이미지 불러오기 실패: {0}",e)}}}
  fn pick_image(&mut self,ctx:&Context,slot:usize){if let Some(p)=rfd::FileDialog::new().set_title(t("사용할 이미지 선택")).add_filter(t("이미지"),&["png","jpg","jpeg","webp","bmp"]).pick_file(){match load_image(&p){Ok(im)=>{let name=format!("assets/{}.png",["background","brand-logo","partner-logo"][slot]);let dest=self.root.join(&name);let result=std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e|e.to_string()).and_then(|_|im.save(&dest).map_err(|e|e.to_string()));match result{Ok(())=>{match slot{0=>self.s.background=name,1=>self.s.logo=name,_=>self.s.logo2=name};self.reload_images(ctx);self.status=t("이미지를 적용했습니다").into();},Err(e)=>self.status=tf!("이미지 저장 실패: {0}",e)}},Err(e)=>self.status=tf!("이미지 선택 실패: {0}",e)}}}
  fn save(&mut self){if self.shot.is_some(){return;}let result=serde_json::to_string_pretty(&self.s).map_err(|e|e.to_string()).and_then(|text|{let path=self.root.join("settings.json");let tmp=self.root.join("settings.pending.json");std::fs::write(&tmp,text).map_err(|e|e.to_string())?;if path.exists(){std::fs::copy(&path,self.root.join("settings.backup.json")).map_err(|e|e.to_string())?;}std::fs::rename(&tmp,&path).map_err(|e|e.to_string())});match result{Ok(())=>{self.last_saved=serde_json::to_string(&self.s).unwrap();self.status=t("모든 변경사항이 저장되었습니다").into();self.dirty_since=None;},Err(e)=>{self.status=tf!("저장 실패: {0}",e);self.dirty_since=Some(Instant::now());}}}
  /// Switches the interface to another language: texts, fonts and window title. An event name that is
@@ -194,13 +246,14 @@ impl Studio{
   ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("SPACE  시작 / 정지")).color(MUTED).size(11.0));});});ui.add_space(4.0);ui.horizontal(|ui|{ui.label(RichText::new(&self.status).color(MUTED).size(11.0));ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("로컬 저장 · 인터넷 연결 불필요")).color(MUTED).size(11.0));});});});}
  fn inspector(&mut self,ctx:&Context){SidePanel::right("inspector").resizable(false).exact_width(340.0).frame(Frame::new().fill(PANEL).inner_margin(Margin::symmetric(22,20))).show(ctx,|ui|{
   ui.horizontal(|ui|{ui.heading(t("화면 설정"));ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new("LIVE").size(10.0).color(self.s.accent()));});});ui.label(RichText::new(t("변경하면 미리보기에 바로 반영됩니다")).color(MUTED).size(11.0));ui.add_space(5.0);ui.horizontal(|ui|{ui.spacing_mut().button_padding=vec2(9.0,9.0);ui.spacing_mut().item_spacing.x=6.0;ui.selectable_value(&mut self.tab,0,t("브랜드·이미지"));ui.selectable_value(&mut self.tab,1,t("시간·진행"));ui.selectable_value(&mut self.tab,2,t("투명 타이머"));});ui.separator();
-  ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui|{match self.tab{0=>self.brand_settings(ui,ctx),1=>self.time_settings(ui,ctx),_=>self.floating_settings(ui,ctx)}});
+  ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui|{match self.tab{0=>self.brand_settings(ui,ctx),1=>self.time_settings(ui,ctx),_=>self.floating_settings(ui,ctx)}if self.panel_end{ui.scroll_to_cursor(Some(Align::BOTTOM));}});
  });}
  fn brand_settings(&mut self,ui:&mut Ui,ctx:&Context){
   field_label(ui,t("브랜드 이름"));ui.add(TextEdit::singleline(&mut self.s.brand).desired_width(f32::INFINITY).hint_text(t("브랜드 이름 입력")).char_limit(80));field_label(ui,t("행사명"));ui.add(TextEdit::singleline(&mut self.s.event).desired_width(f32::INFINITY).hint_text(t("행사명을 입력하세요")).char_limit(180));field_label(ui,t("부제 / 세션명"));ui.add(TextEdit::singleline(&mut self.s.subtitle).desired_width(f32::INFINITY).hint_text(t("발표자 또는 세션명")).char_limit(180));
   ui.add_space(7.0);field_label(ui,t("브랜드 컬러"));ui.horizontal(|ui|{for col in [[132,226,190],[98,172,255],[191,153,255],[255,185,112],[246,126,145]]{let c=Color32::from_rgb(col[0],col[1],col[2]);let(r,res)=ui.allocate_exact_size(vec2(29.0,29.0),Sense::click());ui.painter().circle_filled(r.center(),10.0,c);if self.s.accent==col{ui.painter().circle_stroke(r.center(),13.0,Stroke::new(1.5_f32,WHITE));}if res.clicked(){self.s.accent=col;}}ui.color_edit_button_srgb(&mut self.s.accent);});
   ui.add_space(7.0);field_label(ui,t("브랜드 로고"));self.asset_row(ui,ctx,1);field_label(ui,t("파트너 로고 (선택)"));self.asset_row(ui,ctx,2);
-  if !self.s.logo.is_empty()||!self.s.logo2.is_empty(){let names=[t("왼쪽 위"),t("가운데 위"),t("오른쪽 위"),t("왼쪽 아래"),t("가운데 아래"),t("오른쪽 아래")];ComboBox::from_id_salt("logo_position").selected_text(names[self.s.logo_position]).show_ui(ui,|ui|{for(i,n)in names.iter().enumerate(){ui.selectable_value(&mut self.s.logo_position,i,*n);}});ui.add(Slider::new(&mut self.s.logo_size,20.0..=300.0).suffix("%").text(t("크기")));}
+  if !self.s.logo.is_empty()||!self.s.logo2.is_empty(){let names=[t("왼쪽 위"),t("가운데 위"),t("오른쪽 위"),t("왼쪽 아래"),t("가운데 아래"),t("오른쪽 아래")];ComboBox::from_id_salt("logo_position").selected_text(names[self.s.logo_position]).show_ui(ui,|ui|{for(i,n)in names.iter().enumerate(){ui.selectable_value(&mut self.s.logo_position,i,*n);}});ui.add(Slider::new(&mut self.s.logo_size,20.0..=300.0).suffix("%").text(t("크기")));
+   ui.horizontal_wrapped(|ui|{ui.label(t("로고 색"));for(tone,label)in[(Tone::Auto,t("자동")),(Tone::Own,t("원래 색")),(Tone::White,t("흰색"))]{ui.selectable_value(&mut self.s.logo_tone,tone,label);}});ui.label(RichText::new(t("자동: 어두운 화면에서 안 보이는 로고는 흰색으로 표시")).color(MUTED).size(10.0));}
   ui.add_space(6.0);field_label(ui,t("행사 배경 이미지"));self.asset_row(ui,ctx,0);ui.label(RichText::new(t("PNG · JPG · WebP · BMP / 최대 40MB")).color(MUTED).size(10.0));if !self.s.background.is_empty(){ui.horizontal(|ui|{ui.selectable_value(&mut self.s.cover,true,t("화면 채우기"));ui.selectable_value(&mut self.s.cover,false,t("전체 보이기"));});ui.add(Slider::new(&mut self.s.dim,0.0..=1.0).text(t("어둡게")));}ui.add_space(8.0);ui.label(RichText::new(t("직접 제작했거나 사용 권한이 있는 이미지를 넣어주세요.")).color(MUTED).size(11.0));
  }
  fn time_settings(&mut self,ui:&mut Ui,ctx:&Context){
@@ -223,7 +276,7 @@ impl Studio{
   ui.separator();field_label(ui,t("사용법"));ui.label(RichText::new(t("마우스를 올리면 리셋 · 재시작 · 멈춤 버튼이 나타납니다\n끌어서 이동 · 클릭 시작/멈춤 · 오른쪽 클릭 리셋\n오른쪽 아래 모서리를 끌거나 Ctrl+휠로 크기 조절\n톱니 버튼: 편집 화면으로 · X 버튼: 앱 종료\n버튼을 눌러도 발표 프로그램의 키보드 입력은 그대로입니다\n떠 있는 동안에는 작업 표시줄과 Alt+Tab에 나오지 않습니다")).size(11.0).color(MUTED));
  }
  fn duration_changed(&mut self){if !self.clock.running()&&self.clock.elapsed(self.now())==0.0{self.clock.duration=self.s.duration;}else{self.status=t("변경한 시간은 초기화 후 적용됩니다").into();}}
- fn asset_row(&mut self,ui:&mut Ui,ctx:&Context,slot:usize){let name=match slot{0=>self.s.background.clone(),1=>self.s.logo.clone(),_=>self.s.logo2.clone()};Frame::new().fill(BG).corner_radius(8).inner_margin(10).show(ui,|ui|{ui.set_min_width(258.0);ui.horizontal(|ui|{if let Some(t)=self.textures.get(&name){ui.add(Image::new(t).fit_to_exact_size(vec2(34.0,30.0)));}else{ui.label(RichText::new("＋").size(21.0).color(MUTED));}if ui.button(if name.is_empty(){t("이미지 선택")}else{t("이미지 변경")}).clicked(){self.pick_image(ctx,slot);}if !name.is_empty()&&ui.small_button(t("제거")).clicked(){match slot{0=>self.s.background.clear(),1=>self.s.logo.clear(),_=>self.s.logo2.clear()};}});});}
+ fn asset_row(&mut self,ui:&mut Ui,ctx:&Context,slot:usize){let name=match slot{0=>self.s.background.clone(),1=>self.s.logo.clone(),_=>self.s.logo2.clone()};Frame::new().fill(BG).corner_radius(8).inner_margin(10).show(ui,|ui|{ui.set_min_width(258.0);ui.horizontal(|ui|{let shown=if slot==0{self.textures.get(&name)}else{self.textures.logo(&name,self.s.logo_tone,Some(rgb(BG))).map(|l|l.0)};if let Some(t)=shown{ui.add(Image::new(t).fit_to_exact_size(vec2(34.0,30.0)));}else{ui.label(RichText::new("＋").size(21.0).color(MUTED));}if ui.button(if name.is_empty(){t("이미지 선택")}else{t("이미지 변경")}).clicked(){self.pick_image(ctx,slot);}if !name.is_empty()&&ui.small_button(t("제거")).clicked(){match slot{0=>self.s.background.clear(),1=>self.s.logo.clear(),_=>self.s.logo2.clear()};}});});}
  fn workspace(&mut self,ctx:&Context){CentralPanel::default().frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(28,23))).show(ctx,|ui|{
   ui.horizontal(|ui|{ui.label(RichText::new(t("행사 화면 미리보기")).size(17.0).strong());ui.with_layout(Layout::right_to_left(Align::Center),|ui|{ui.label(RichText::new(t("실시간 반영")).color(MUTED).size(11.0));let(r,_)=ui.allocate_exact_size(vec2(7.0,7.0),Sense::hover());ui.painter().circle_filled(r.center(),3.0,self.s.accent());});});ui.add_space(10.0);
   ui.horizontal(|ui|{for(mode,label)in[(Mode::Circle,t("원그래프")),(Mode::Bar,t("막대그래프")),(Mode::Number,t("123  숫자"))]{let active=self.s.mode==mode;let b=Button::new(RichText::new(label).color(if active{self.s.accent()}else{MUTED})).fill(if active{Color32::from_rgb(31,56,51)}else{PANEL}).corner_radius(8);if ui.add_sized([126.0,37.0],b).clicked(){self.s.mode=mode;}}});ui.add_space(16.0);

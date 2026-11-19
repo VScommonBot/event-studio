@@ -12,6 +12,7 @@ A **branded timer for events and presentations** on Windows, written in Rust wit
 
 - **세 가지 표시**: 원그래프, 막대그래프, 숫자. 진행 중에 바꿔도 시간은 그대로입니다.
 - **브랜드 화면**: 브랜드 이름, 행사명, 부제, 브랜드 색, 로고 두 개, 배경 이미지.
+  어두운 화면에서 잘 안 보이는 어두운 로고는 저절로 흰색으로 나옵니다 (로고 색: 자동 · 원래 색 · 흰색).
 - **투명 타이머**: 배경 없이 모든 창 위에 떠 있고, 마우스를 올리면 리셋 · 재시작 · 멈춤 버튼이 나옵니다.
   빈 곳을 누르면 뒤에 있는 발표 자료가 눌리고, 버튼을 눌러도 발표 프로그램의 키보드 입력을 가져가지 않습니다.
 - **발표 화면**: 프로젝터나 다른 모니터로 옮길 수 있는 별도 창과 전체 화면.
@@ -85,7 +86,8 @@ cargo test
 
 Event Studio is a timer for events and presentations that carries your brand: brand name, event
 name, subtitle, brand colour, two logos and a background image, shown as a circle, a bar or plain
-digits.
+digits. A dark logo that would be hard to see on the dark stage is shown in white by itself
+(Logo color: Auto · Original · White).
 
 ![Editor](docs/editor-en.png)
 

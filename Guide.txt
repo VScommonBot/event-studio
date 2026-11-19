@@ -7,6 +7,8 @@ Getting started
   On the Brand tab, enter the brand name, the event name and the subtitle.
   A field you leave empty takes no room on the screen, and the timer is drawn that much larger.
   "Choose image" puts in your logo, a partner logo and a background.
+  With Logo color on "Auto", a logo that would be hard to see on the dark stage is shown in white;
+  "Original" and "White" fix it either way. On the floating timer a logo turns white only with "White".
   The settings panel scrolls down.
 
 Language (한국어 · English · 中文 · 日本語)
