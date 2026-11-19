@@ -40,10 +40,11 @@ const FRESH_NAME: &str = "EventStudio.exe.new";
 /// Settings and images an install replaced on request are kept here.
 pub const PREVIOUS_DIR: &str = "previous-settings";
 /// Everything the program itself writes beside its file (studio.rs `save`, `pick_image`, the sound picker).
-const DATA_FILES: [&str; 8] = [
+const DATA_FILES: [&str; 9] = [
     "settings.json",
     "settings.backup.json",
     "settings.pending.json",
+    crate::studio::UNREADABLE_NAME,
     "assets/background.png",
     "assets/brand-logo.png",
     "assets/partner-logo.png",
@@ -434,7 +435,8 @@ pub fn uninstall(dir: &Path, places: &Places, remove_data: bool, patience: Durat
     if places.entry_text("InstallLocation").is_none_or(|at| same_path(Path::new(&at), &dir)) {
         places.entry_delete()?;
     }
-    for name in GUIDES.into_iter().map(|(name, _)| name).chain([FRESH_NAME, EXE_NAME]) {
+    // (The log of faults is the program's own by-product, not something the person set up: it goes with the program.)
+    for name in GUIDES.into_iter().map(|(name, _)| name).chain([FRESH_NAME, EXE_NAME, crate::report::LOG_NAME]) {
         delete(dir.join(name), &mut left);
     }
     if remove_data {

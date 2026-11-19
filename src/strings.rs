@@ -43,6 +43,7 @@ pub static TABLE: &[[&str; 4]] = &[
     ["언어", "Language", "语言", "言語"],
     ["언어를 바꿨습니다", "Language changed", "已切换语言", "言語を切り替えました"],
     ["저장 설정을 읽지 못해 기본 설정으로 열었습니다.", "Saved settings could not be read; opened with the defaults.", "无法读取已保存的设置，已使用默认设置打开。", "保存された設定を読み込めなかったため、初期設定で開きました。"],
+    ["저장 설정을 읽지 못해 직전에 저장한 설정으로 열었습니다.", "Saved settings could not be read; opened with the settings saved before them.", "无法读取已保存的设置，已使用上一次保存的设置打开。", "保存された設定を読み込めなかったため、ひとつ前に保存した設定で開きました。"],
     ["이미지는 40MB 이하로 선택해주세요.", "Please choose an image of 40 MB or less.", "请选择 40MB 以下的图片。", "画像は 40MB 以下のものを選んでください。"],
     ["이미지는 가로·세로 8192px 이하로 선택해주세요.", "Please choose an image no larger than 8192 px on either side.", "请选择宽高均不超过 8192px 的图片。", "画像は縦横 8192px 以下のものを選んでください。"],
     ["설정은 자동으로 저장됩니다", "Settings are saved automatically", "设置会自动保存", "設定は自動で保存されます"],
@@ -314,4 +315,9 @@ pub static TABLE: &[[&str; 4]] = &[
     ["설치중", "Installing", "正在安装", "インストール中"],
     ["잠시 기다려 주세요.", "Please wait.", "请稍候。", "しばらくお待ちください。"],
     ["진행할 수 없습니다", "Cannot continue", "无法继续", "続行できません"],
+    // When the program cannot go on (report.rs).
+    ["Event Studio를 시작하지 못했습니다.", "Event Studio could not start.", "无法启动 Event Studio。", "Event Studio を起動できませんでした。"],
+    ["그래픽 드라이버가 없거나 원격 데스크톱으로 연결한 화면에서는 창을 열지 못할 수 있습니다.", "The window may fail to open on a computer without a graphics driver, or over a remote desktop connection.", "在没有显卡驱动的电脑上，或通过远程桌面连接时，可能无法打开窗口。", "グラフィックドライバーがないパソコンや、リモートデスクトップで接続した画面では、ウィンドウを開けないことがあります。"],
+    ["Event Studio에 문제가 생겨 끝납니다.", "Event Studio ran into a problem and has to close.", "Event Studio 遇到问题，即将关闭。", "Event Studio に問題が発生したため終了します。"],
+    ["자세한 내용을 이 파일에 적어 두었습니다:\n{0}", "The details were written to this file:\n{0}", "详细信息已写入此文件：\n{0}", "詳しい内容をこのファイルに記録しました:\n{0}"],
 ];

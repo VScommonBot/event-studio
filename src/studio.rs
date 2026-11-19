@@ -36,6 +36,16 @@ const ZOOM_STEP:f32=1.1; // app.js wheel: Ctrl+wheel scales the window by 1.1
 const FLASH_SECS:f64=6.0; // app.js onCross: the timer blinks for 6000 ms at the end
 const BLINK_OPACITY:f32=0.4; // style.css blink-soft: 50% { opacity: 0.4 }
 const BACKDROP_MAX:f32=0.8; // settings.js RANGES overlayBackdrop [0, 0.8]
+/// A settings file that could not be read is kept under this name, so it never takes the backup's place.
+pub(crate) const UNREADABLE_NAME:&str="settings.unreadable.json";
+/// A changed setting is saved once it has stood this long.
+const SAVE_AFTER:Duration=Duration::from_millis(600);
+// How often the window is drawn again (`next_frame_in`).
+const FRAME:Duration=Duration::from_nanos(16_666_667); // every frame, 60 times a second: only while something needs it
+const FRAME_LATE:Duration=Duration::from_millis(2); // a frame asked for a moment falls just behind it
+const SETTLE_FRAMES:u32=10; // every frame for this many after a window opens or changes its kind
+const GRAPH_STEPS:f64=3000.0; // the ring or bar is drawn this often over the timer's length, about a pixel a step
+const GRAPH_SLOWEST:f64=0.25; // but at least four times a second
 /// The event name a new set of settings starts with; in another language it starts as that language's wording.
 pub(crate) const FIRST_EVENT:&str="새로운 가능성을 여는 시간";
 /// Where `--demo hidden` puts a check's window: beyond every screen.
@@ -116,11 +126,40 @@ struct Studio{
  wide_fonts:bool,font_text:String,
  /// For checks (`--demo panelend`): the settings panel starts scrolled to its end.
  panel_end:bool,
+ /// For checks (`--demo`): their fixed states count frames, so every frame is drawn.
+ steady:bool,
+ /// Every frame is drawn until this one (`settle`).
+ settle_until:u32,
 }
 /// The 설치 파일 만들기 window: whether the settings go along, and how the last try ended.
 struct Packer{with_settings:bool,made:Option<PathBuf>,error:Option<String>}
-pub(crate) fn app_root()->PathBuf{let exe=std::env::current_exe().unwrap();let p=exe.parent().unwrap();if p.file_name().is_some_and(|x|x=="debug"||x=="release")&&p.parent().is_some_and(|x|x.ends_with("target")){p.parent().unwrap().parent().unwrap().to_path_buf()}else{p.to_path_buf()}}
-fn load_settings(root:&Path)->(Settings,Option<String>){let(mut s,warning)=match std::fs::read_to_string(root.join("settings.json")){Ok(text)=>match serde_json::from_str::<Settings>(&text){Ok(mut v)=>{v.normalize();(v,None)},Err(_)=>(Settings::first(Lang::system()),Some(t("저장 설정을 읽지 못해 기본 설정으로 열었습니다.").into()))},Err(_)=>(Settings::first(Lang::system()),None)};s.migrate();(s,warning)}
+/// The folder the settings and images are kept in: the program's own (for a build run from
+/// `target\debug` or `target\release`, the project's). The folder it was started in, should
+/// Windows not say where the program is.
+pub(crate) fn app_root()->PathBuf{
+ let Some(dir)=std::env::current_exe().ok().and_then(|exe|exe.parent().map(Path::to_path_buf)) else{return PathBuf::from(".")};
+ let built=dir.file_name().is_some_and(|x|x=="debug"||x=="release")&&dir.parent().is_some_and(|x|x.ends_with("target"));
+ if built{if let Some(project)=dir.parent().and_then(Path::parent){return project.to_path_buf();}}
+ dir
+}
+/// The settings saved in `root`. A settings file that cannot be read as settings (damaged, or
+/// written by a build with a value this one does not know) gives way to the copy the save before
+/// it kept, settings.backup.json, and only when that cannot be read either to a first start's
+/// settings. With no settings file at all it is a first start. Nothing is written here; `save`
+/// puts the unreadable file aside before it writes.
+fn load_settings(root:&Path)->(Settings,Option<String>){
+ // `None`: no such file. `Some(None)`: there, but not settings this build can read.
+ let read=|name:&str|match std::fs::read_to_string(root.join(name)){Ok(text)=>Some(serde_json::from_str::<Settings>(&text).ok()),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>None,Err(_)=>Some(None)};
+ let(mut s,warning)=match read("settings.json"){
+  Some(Some(saved))=>(saved,None),
+  None=>(Settings::first(Lang::system()),None),
+  Some(None)=>match read("settings.backup.json"){
+   Some(Some(before))=>(before,Some(t("저장 설정을 읽지 못해 직전에 저장한 설정으로 열었습니다.").into())),
+   _=>(Settings::first(Lang::system()),Some(t("저장 설정을 읽지 못해 기본 설정으로 열었습니다.").into())),
+  },
+ };
+ s.normalize();s.migrate();(s,warning)
+}
 fn load_image(path:&Path)->Result<image::RgbaImage,String>{
  let meta=std::fs::metadata(path).map_err(|e|e.to_string())?;if meta.len()>40*1024*1024{return Err(t("이미지는 40MB 이하로 선택해주세요.").into());}
  let dims=image::image_dimensions(path).map_err(|e|e.to_string())?;if dims.0>8192||dims.1>8192{return Err(t("이미지는 가로·세로 8192px 이하로 선택해주세요.").into());}
@@ -173,7 +212,7 @@ fn needs_white(logo:[f32;3],behind:[f32;3])->bool{let bg=luminance(behind);contr
 fn rgb(c:Color32)->[f32;3]{[c.r() as f32/255.0,c.g() as f32/255.0,c.b() as f32/255.0]}
 impl Studio{
  fn bare(s:Settings,root:PathBuf,shot:Option<PathBuf>)->Self{let last_saved=serde_json::to_string(&s).unwrap();Self{clock:Clock::new(s.duration),s,epoch:Instant::now(),root,textures:Pictures::default(),tab:0,status:t("설정은 자동으로 저장됩니다").into(),last_saved,dirty_since:None,presentation:false,audience:false,audience_full:false,confirm_reset:false,prior_phase:Phase::Ready,shot,frames:0,shot_requested:false,screenshot_ok:false,
-  overlay:false,hwnd:None,editor_rect:None,geometry:None,place_overlay:false,last_topmost:0.0,activity:Instant::now(),audience_activity:Instant::now(),bars:HashMap::new(),float_buttons:Vec::new(),gesture:None,flash_since:None,force_controls:false,pulse:None,auto_float:None,auto_back:None,auto_language:None,hotkeys:None,hotkey_failed:false,digit_hotkeys:None,digit_failed:false,hit_region:None,packer:None,wide_fonts:false,font_text:String::new(),panel_end:false}}
+  overlay:false,hwnd:None,editor_rect:None,geometry:None,place_overlay:false,last_topmost:0.0,activity:Instant::now(),audience_activity:Instant::now(),bars:HashMap::new(),float_buttons:Vec::new(),gesture:None,flash_since:None,force_controls:false,pulse:None,auto_float:None,auto_back:None,auto_language:None,hotkeys:None,hotkey_failed:false,digit_hotkeys:None,digit_failed:false,hit_region:None,packer:None,wide_fonts:false,font_text:String::new(),panel_end:false,steady:false,settle_until:SETTLE_FRAMES}}
  fn new(cc:&eframe::CreationContext<'_>,shot:Option<PathBuf>,demo:Option<String>,floating:bool,language:Option<Lang>)->Self{
   let ctx=&cc.egui_ctx;
   let root=app_root();let(mut s,warning)=load_settings(&root);
@@ -182,19 +221,50 @@ impl Studio{
   // `--demo a,b`: fixed states for checks (circle|bar|number, warning|over|hover, packer|packed: the 설치 파일 만들기 window).
   let demos:Vec<&str>=demo.as_deref().map(|d|d.split(',').collect()).unwrap_or_default();
   for d in &demos{match *d{"circle"=>s.mode=Mode::Circle,"bar"=>s.mode=Mode::Bar,"number"=>s.mode=Mode::Number,_=>{}}}
-  let mut app=Self::bare(s,root,shot);if let Some(w)=warning{app.status=w;}if app.s.pin&&!floating{ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));}
+  let mut app=Self::bare(s,root,shot);app.steady=demo.is_some();if let Some(w)=warning{app.status=w;}if app.s.pin&&!floating{ctx.send_viewport_cmd(ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));}
   for d in &demos{match *d{"warning"=>app.clock.accumulated=245.0,"over"=>app.clock.accumulated=312.0,"hover"=>{app.clock.accumulated=95.0;app.force_controls=true;},"pulse"=>app.pulse=Some((5.0,7.5)),"float"=>app.auto_float=Some(90),"back"=>app.auto_back=Some(600),"to-ko"|"to-en"|"to-zh"|"to-ja"=>app.auto_language=Lang::from_code(&d[3..]),"timetab"=>app.tab=1,"floattab"=>app.tab=2,"panelend"=>app.panel_end=true,"packer"=>app.packer=Some(Packer{with_settings:true,made:None,error:None}),"packed"=>app.packer=Some(Packer{with_settings:true,made:Some(app.root.join(setup::SETUP_NAME)),error:None}),_=>{}}}
   // (A check's hidden window stays where it was put, beyond the screen.)
   app.overlay=floating;app.place_overlay=floating&&!demos.contains(&"hidden");app.reload_images(ctx);app
  }
  fn now(&self)->f64{self.epoch.elapsed().as_secs_f64()}
+ /// A window is opening or changing its kind (floating timer, full screen, audience window):
+ /// every frame is drawn for a little while, until Windows and the picture have caught up.
+ fn settle(&mut self){self.settle_until=self.frames+SETTLE_FRAMES;}
+ /// How long the picture on screen stays right; the window is drawn again only then, and at once
+ /// when the mouse or a key does something (egui sees to that, and to its own fades). While the
+ /// timer runs that is the next whole second, and often enough in between for the ring or bar to
+ /// move without steps; besides, the moment the hover buttons are due to hide, a changed setting
+ /// is due to be saved, the end blink turns, or the floating timer is put back on top. `None`:
+ /// nothing changes by itself. A check's fixed states, a window settling or being placed and a
+ /// drag are counted in frames or follow the mouse, and keep every frame.
+ fn next_frame_in(&self)->Option<Duration>{
+  if self.shot.is_some()||self.steady||self.frames<self.settle_until||self.place_overlay||self.geometry.is_some()||self.gesture.is_some(){return Some(FRAME);}
+  let now=self.now();let mut wait=f64::INFINITY;
+  if let Some(tick)=self.clock.next_change(now){
+   wait=wait.min(tick);
+   // The ring and the bar move all the time until the end, then stand still.
+   if self.s.mode!=Mode::Number&&self.clock.elapsed(now)<self.clock.duration{wait=wait.min((self.clock.duration/GRAPH_STEPS).clamp(FRAME.as_secs_f64(),GRAPH_SLOWEST));}
+  }
+  if self.overlay{
+   wait=wait.min(TOPMOST_EVERY-(now-self.last_topmost));
+   if let Some(e)=self.flash_since.map(|t|t.elapsed().as_secs_f64()).filter(|e|*e<FLASH_SECS){wait=wait.min(0.5-e%0.5);}
+  }
+  for idle in [Some(self.activity),self.audience.then_some(self.audience_activity)].into_iter().flatten().map(|at|at.elapsed().as_secs_f64()){if idle<CONTROLS_IDLE{wait=wait.min(CONTROLS_IDLE-idle);}}
+  if let Some(since)=self.dirty_since{wait=wait.min(SAVE_AFTER.as_secs_f64()-since.elapsed().as_secs_f64());}
+  wait.is_finite().then(||Duration::from_secs_f64(wait.max(0.0))+FRAME_LATE)
+ }
  fn started(&self)->bool{self.clock.qna||self.clock.elapsed(self.now())>0.0}
  fn controls_forced(&self)->bool{self.force_controls||self.pulse.is_some_and(|(from,to)|(from..to).contains(&self.now()))}
  fn control_state(&self)->controls::State{controls::State{running:self.clock.running(),started:self.started(),accent:self.s.accent()}}
  fn reload_images(&mut self,ctx:&Context){self.textures=Pictures::default();for(slot,name)in [&self.s.background,&self.s.logo,&self.s.logo2].into_iter().enumerate(){if name.is_empty(){continue;}match load_image(&self.root.join(name)){Ok(im)=>{let size=[im.width() as usize,im.height() as usize];let pics=&mut self.textures;pics.own.insert(name.clone(),ctx.load_texture(name,ColorImage::from_rgba_unmultiplied(size,im.as_raw()),TextureOptions::LINEAR));pics.mean.insert(name.clone(),mean_color(&im));
    if slot>0{pics.white.insert(name.clone(),ctx.load_texture(format!("{name} (white)"),ColorImage::from_rgba_unmultiplied(size,&white_copy(&im)),TextureOptions::LINEAR));}},Err(e)=>self.status=tf!("이미지 불러오기 실패: {0}",e)}}}
  fn pick_image(&mut self,ctx:&Context,slot:usize){if let Some(p)=rfd::FileDialog::new().set_title(t("사용할 이미지 선택")).add_filter(t("이미지"),&["png","jpg","jpeg","webp","bmp"]).pick_file(){match load_image(&p){Ok(im)=>{let name=format!("assets/{}.png",["background","brand-logo","partner-logo"][slot]);let dest=self.root.join(&name);let result=std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e|e.to_string()).and_then(|_|im.save(&dest).map_err(|e|e.to_string()));match result{Ok(())=>{match slot{0=>self.s.background=name,1=>self.s.logo=name,_=>self.s.logo2=name};self.reload_images(ctx);self.status=t("이미지를 적용했습니다").into();},Err(e)=>self.status=tf!("이미지 저장 실패: {0}",e)}},Err(e)=>self.status=tf!("이미지 선택 실패: {0}",e)}}}
- fn save(&mut self){if self.shot.is_some(){return;}let result=serde_json::to_string_pretty(&self.s).map_err(|e|e.to_string()).and_then(|text|{let path=self.root.join("settings.json");let tmp=self.root.join("settings.pending.json");std::fs::write(&tmp,text).map_err(|e|e.to_string())?;if path.exists(){std::fs::copy(&path,self.root.join("settings.backup.json")).map_err(|e|e.to_string())?;}std::fs::rename(&tmp,&path).map_err(|e|e.to_string())});match result{Ok(())=>{self.last_saved=serde_json::to_string(&self.s).unwrap();self.status=t("모든 변경사항이 저장되었습니다").into();self.dirty_since=None;},Err(e)=>{self.status=tf!("저장 실패: {0}",e);self.dirty_since=Some(Instant::now());}}}
+ fn save(&mut self){if self.shot.is_some(){return;}let result=serde_json::to_string_pretty(&self.s).map_err(|e|e.to_string()).and_then(|text|{let path=self.root.join("settings.json");let tmp=self.root.join("settings.pending.json");std::fs::write(&tmp,text).map_err(|e|e.to_string())?;
+  // The file about to be replaced becomes the backup. One that cannot be read as settings does not:
+  // the backup may then be the only good copy (`load_settings` opened from it), so it stays, and
+  // the unreadable file is kept under a name of its own.
+  if path.exists(){let readable=std::fs::read_to_string(&path).is_ok_and(|old|serde_json::from_str::<Settings>(&old).is_ok());std::fs::copy(&path,self.root.join(if readable{"settings.backup.json"}else{UNREADABLE_NAME})).map_err(|e|e.to_string())?;}
+  std::fs::rename(&tmp,&path).map_err(|e|e.to_string())});match result{Ok(())=>{self.last_saved=serde_json::to_string(&self.s).unwrap();self.status=t("모든 변경사항이 저장되었습니다").into();self.dirty_since=None;},Err(e)=>{self.status=tf!("저장 실패: {0}",e);self.dirty_since=Some(Instant::now());}}}
  /// Switches the interface to another language: texts, fonts and window title. An event name that is
  /// still the placeholder follows; anything the person typed stays.
  fn set_language(&mut self,ctx:&Context,language:Lang){
@@ -218,7 +288,7 @@ impl Studio{
  fn sound(&self,end:bool){if self.s.sound&&self.shot.is_none(){play_sound(self.s.volume,if end&&!self.s.sound_file.is_empty(){Some(self.root.join(&self.s.sound_file))}else{None},end);}}
  fn top(&mut self,ctx:&Context){TopBottomPanel::top("header").frame(Frame::new().fill(PANEL).inner_margin(Margin::symmetric(24,17))).show(ctx,|ui|{ui.horizontal(|ui|{let(r,_)=ui.allocate_exact_size(vec2(28.0,28.0),Sense::hover());ui.painter().circle_stroke(r.center(),10.0,Stroke::new(3.0_f32,self.s.accent()));ui.painter().line_segment([r.center(),r.center()+vec2(0.0,-6.0)],Stroke::new(2.0_f32,self.s.accent()));ui.label(RichText::new("EVENT STUDIO").size(19.0).strong());ui.add_space(12.0);if ctx.screen_rect().width()>=HEADER_ROOMY{ui.label(RichText::new(t("브랜드 행사 타이머")).color(MUTED).size(12.0));}ui.with_layout(Layout::right_to_left(Align::Center),|ui|{
   let mut picked=self.s.language;language_picker(ui,&mut picked);if picked!=self.s.language{self.set_language(ctx,picked);}
-  if ui.button(t("발표 화면 열기  ↗")).on_hover_text(t("별도 창을 다른 모니터로 옮길 수 있습니다")).clicked(){self.audience=true;}if ui.button(t("전체 화면  F11")).clicked(){self.presentation=true;ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));}
+  if ui.button(t("발표 화면 열기  ↗")).on_hover_text(t("별도 창을 다른 모니터로 옮길 수 있습니다")).clicked(){self.audience=true;self.settle();}if ui.button(t("전체 화면  F11")).clicked(){self.presentation=true;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));}
   if ui.add(Button::new(RichText::new(t("투명 타이머 실행")).color(self.s.accent()).strong()).stroke(Stroke::new(1.0_f32,self.s.accent()))).on_hover_text(t("배경 없이 다른 창 위에 늘 떠 있는 작은 타이머로 바꿉니다")).clicked(){self.enter_floating(ctx);}
   if ui.button(t("설치 파일 만들기")).on_hover_text(t("이 프로그램을 다른 컴퓨터에도 설치할 수 있는 파일 하나로 묶습니다")).clicked(){self.packer=Some(Packer{with_settings:true,made:None,error:None});}});});});}
  /// 설치 파일 만들기: this program as one setup file, with the settings and images on screen if wanted.
@@ -290,7 +360,7 @@ impl Studio{
   let show=self.controls_forced()||on_bar||(hover.is_some()&&activity.elapsed().as_secs_f64()<CONTROLS_IDLE);let o=ui.ctx().animate_bool_with_time(ui.id().with(("controls",salt)),show,CONTROLS_FADE);
   let anchor=pos2(timer_rect.center().x,(timer_rect.bottom()+20.0).min(area.bottom()-6.0));let b=controls::bar(ui,salt,area,anchor,controls::STAGE,self.control_state(),o);self.bars.insert(salt,b.rect);b.pressed
  }
- fn keys(&mut self,ctx:&Context){if self.overlay{self.floating_keys(ctx);return;}if ctx.input(|i|i.key_pressed(Key::Escape)){self.presentation=false;ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::F11)){self.presentation=!self.presentation;ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.presentation));}if ctx.wants_keyboard_input(){return;}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}if ctx.input(|i|i.key_pressed(Key::R)){if self.clock.elapsed(self.now())>0.0{self.confirm_reset=true}else{self.reset();}}if ctx.input(|i|i.key_pressed(Key::Q))&&self.s.qna_enabled{self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}for(key,mode)in[(Key::Num1,Mode::Circle),(Key::Num2,Mode::Bar),(Key::Num3,Mode::Number)]{if ctx.input(|i|i.key_pressed(key)){self.s.mode=mode;}}}
+ fn keys(&mut self,ctx:&Context){if self.overlay{self.floating_keys(ctx);return;}if ctx.input(|i|i.key_pressed(Key::Escape)){self.presentation=false;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::F11)){self.presentation=!self.presentation;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.presentation));}if ctx.wants_keyboard_input(){return;}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}if ctx.input(|i|i.key_pressed(Key::R)){if self.clock.elapsed(self.now())>0.0{self.confirm_reset=true}else{self.reset();}}if ctx.input(|i|i.key_pressed(Key::Q))&&self.s.qna_enabled{self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}for(key,mode)in[(Key::Num1,Mode::Circle),(Key::Num2,Mode::Bar),(Key::Num3,Mode::Number)]{if ctx.input(|i|i.key_pressed(key)){self.s.mode=mode;}}}
  /// Keys while the floating timer has the keyboard (app.js KEYS): Space, R, arrows ±1 min / ±10 s, 1–3, S/F2/Esc editor.
  fn floating_keys(&mut self,ctx:&Context){let pressed=|k|ctx.input(|i|i.key_pressed(k));if pressed(Key::Space){self.toggle();}if pressed(Key::R){self.reset();}if pressed(Key::Q)&&self.s.qna_enabled{self.clock.switch_qna(self.s.qna_duration,self.s.carry,self.now());}
   for(key,d)in[(Key::ArrowUp,60.0),(Key::ArrowDown,-60.0),(Key::ArrowLeft,-10.0),(Key::ArrowRight,10.0)]{if pressed(key){self.adjust(d);}}for(key,mode)in[(Key::Num1,Mode::Circle),(Key::Num2,Mode::Bar),(Key::Num3,Mode::Number)]{if pressed(key){self.s.mode=mode;}}
@@ -310,13 +380,13 @@ impl Studio{
   if self.presentation{self.presentation=false;ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}
   self.editor_rect=win::window_rect(h);let target=self.floating_target(ctx,h);
   for cmd in [ViewportCommand::Maximized(false),ViewportCommand::MinInnerSize(FLOAT_MIN),ViewportCommand::Decorations(false),ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop),ViewportCommand::Title(t(FLOAT_TITLE).into())]{ctx.send_viewport_cmd(cmd);}
-  self.geometry=Some((target,self.frames+1));self.overlay=true;self.confirm_reset=false;self.activity=Instant::now();self.status=t("투명 타이머: 마우스를 올리면 버튼이 나타납니다").into();
+  self.geometry=Some((target,self.frames+1));self.settle();self.overlay=true;self.confirm_reset=false;self.activity=Instant::now();self.status=t("투명 타이머: 마우스를 올리면 버튼이 나타납니다").into();
  }
  /// Back to the editor where it was.
  fn leave_floating(&mut self,ctx:&Context){
   if !self.overlay{return;}self.overlay=false;self.gesture=None;let target=self.editor_rect.unwrap_or_else(||self.editor_default(ctx));if let Some(h)=self.hwnd{self.set_hit_region(h,None);win::set_floating(h,false);}
   for cmd in [ViewportCommand::Decorations(true),ViewportCommand::WindowLevel(if self.s.pin{egui::WindowLevel::AlwaysOnTop}else{egui::WindowLevel::Normal}),ViewportCommand::MinInnerSize(EDITOR_MIN),ViewportCommand::Title(t(EDITOR_TITLE).into()),ViewportCommand::Focus]{ctx.send_viewport_cmd(cmd);}
-  self.geometry=Some((target,self.frames+1));
+  self.geometry=Some((target,self.frames+1));self.settle();
  }
  /// Applies a pending window rect for a few frames (after the frame/size commands landed),
  /// then keeps the floating timer on top and click-without-focus, re-asserted every second.
@@ -458,12 +528,18 @@ impl eframe::App for Studio{
   else if self.presentation{CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx,|ui|{let r=ui.max_rect();let v=self.clock.view(self.now(),self.s.warning,self.s.count_up,self.s.overtime,self.s.seconds_only);let tr=scene::render(ui.painter(),r,&self.s,&v,&self.textures,self.clock.qna,self.clock.running());ui.put(Rect::from_min_size(r.left_top()+vec2(12.0,12.0),vec2(140.0,28.0)),Label::new(RichText::new(t("Esc  편집 화면으로")).color(MUTED).size(11.0)));if let Some(cmd)=self.hover_bar(ui,"presentation",r,tr,self.activity){self.apply_cmd(cmd,ui.ctx());}});if !self.force_controls&&self.activity.elapsed().as_secs_f64()>=CONTROLS_IDLE{ctx.set_cursor_icon(CursorIcon::None);}}
   else{self.top(ctx);self.controls(ctx);self.inspector(ctx);self.workspace(ctx);self.packer_window(ctx);}
   if self.confirm_reset&&!self.overlay{Window::new(t("타이머 초기화")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,[0.0,0.0]).show(ctx,|ui|{ui.label(t("진행 시간을 지우고 설정한 발표 시간으로 돌아갈까요?"));ui.horizontal(|ui|{if ui.button(t("초기화")).clicked(){self.reset();}if ui.button(t("취소")).clicked(){self.confirm_reset=false;}});});}
-  if self.audience{ctx.show_viewport_immediate(ViewportId::from_hash_of("audience"),ViewportBuilder::default().with_title(t("행사 발표 화면 · F11 전체 화면")).with_inner_size([1100.0,720.0]).with_min_inner_size([480.0,320.0]),|ctx,_|{if ctx.input(|i|i.viewport().close_requested()){self.audience=false;}if ctx.input(|i|i.key_pressed(Key::F11)){self.audience_full=!self.audience_full;ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.audience_full));}if ctx.input(|i|i.key_pressed(Key::Escape)){self.audience_full=false;ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}
+  if self.audience{ctx.show_viewport_immediate(ViewportId::from_hash_of("audience"),ViewportBuilder::default().with_title(t("행사 발표 화면 · F11 전체 화면")).with_inner_size([1100.0,720.0]).with_min_inner_size([480.0,320.0]),|ctx,_|{if ctx.input(|i|i.viewport().close_requested()){self.audience=false;}if ctx.input(|i|i.key_pressed(Key::F11)){self.audience_full=!self.audience_full;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.audience_full));}if ctx.input(|i|i.key_pressed(Key::Escape)){self.audience_full=false;self.settle();ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));}if ctx.input(|i|i.key_pressed(Key::Space)){self.toggle();}
    if ctx.input(|i|i.pointer.delta()!=Vec2::ZERO||i.pointer.any_pressed()){self.audience_activity=Instant::now();}
    CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx,|ui|{let v=self.clock.view(self.now(),self.s.warning,self.s.count_up,self.s.overtime,self.s.seconds_only);let r=ui.max_rect();let tr=scene::render(ui.painter(),r,&self.s,&v,&self.textures,self.clock.qna,self.clock.running());if let Some(cmd)=self.hover_bar(ui,"audience",r,tr,self.audience_activity){self.apply_cmd(cmd,ui.ctx());}});
-   if !self.force_controls&&ctx.input(|i|i.pointer.hover_pos().is_some())&&self.audience_activity.elapsed().as_secs_f64()>=CONTROLS_IDLE{ctx.set_cursor_icon(CursorIcon::None);}ctx.request_repaint_after(Duration::from_millis(33));});}
-  let serial=serde_json::to_string(&self.s).unwrap();if serial!=self.last_saved&&self.shot.is_none(){if self.dirty_since.is_none(){self.dirty_since=Some(Instant::now());}if self.dirty_since.is_some_and(|t|t.elapsed()>Duration::from_millis(600)){self.save();}}
-  if self.shot.is_some()&&!self.shot_requested&&self.frames>=120{ctx.send_viewport_cmd(ViewportCommand::Screenshot(egui::UserData::default()));self.shot_requested=true;}if self.shot.is_some()&&self.frames>300&&!self.screenshot_ok{eprintln!("Screenshot timeout");ctx.send_viewport_cmd(ViewportCommand::Close);}ctx.request_repaint_after(Duration::from_millis(16));
+   if !self.force_controls&&ctx.input(|i|i.pointer.hover_pos().is_some())&&self.audience_activity.elapsed().as_secs_f64()>=CONTROLS_IDLE{ctx.set_cursor_icon(CursorIcon::None);}
+   if let Some(wait)=self.next_frame_in(){ctx.request_repaint_after(wait);}});}
+  let serial=serde_json::to_string(&self.s).unwrap();if serial!=self.last_saved&&self.shot.is_none(){if self.dirty_since.is_none(){self.dirty_since=Some(Instant::now());}if self.dirty_since.is_some_and(|t|t.elapsed()>SAVE_AFTER){self.save();
+   // (The status line of this frame is already drawn: once more, to show how the save went.)
+   ctx.request_repaint();}}
+  // Changed and changed back: nothing is waiting to be saved any more.
+  else{self.dirty_since=None;}
+  if self.shot.is_some()&&!self.shot_requested&&self.frames>=120{ctx.send_viewport_cmd(ViewportCommand::Screenshot(egui::UserData::default()));self.shot_requested=true;}if self.shot.is_some()&&self.frames>300&&!self.screenshot_ok{eprintln!("Screenshot timeout");ctx.send_viewport_cmd(ViewportCommand::Close);}
+  if let Some(wait)=self.next_frame_in(){ctx.request_repaint_after(wait);}
  }
  /// Clear to see-through: the editor's panels cover every pixel, the floating timer leaves the rest empty.
  fn clear_color(&self,_visuals:&egui::Visuals)->[f32;4]{[0.0;4]}

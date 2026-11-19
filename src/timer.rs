@@ -37,6 +37,14 @@ impl Clock {
             self.started=Some(now); self.qna=true; self.accumulated=overflow;
         }
     }
+    /// Seconds until the shown time next changes: the elapsed time passes a whole second (counting
+    /// up) or what is left does (counting down, and past the end). Warning, end, overtime and the
+    /// automatic Q&A switch all fall on those moments. `None` while the timer stands still.
+    pub fn next_change(&self, now:f64) -> Option<f64> {
+        if !self.running() { return None; }
+        let e=self.elapsed(now); let up=1.0-e.fract(); let down=(self.duration-e).rem_euclid(1.0);
+        Some(up.min(if down>0.0 {down} else {1.0}))
+    }
     pub fn view(&self, now:f64, warn:f64, count_up:bool, overtime:bool, seconds_only:bool) -> View {
         let e=self.elapsed(now); let rem=self.duration-e;
         let phase=if rem<=-OVERTIME_DELAY && overtime {Phase::Over} else if rem<=0.0 {Phase::End} else if warn>0.0 && rem<=warn && (self.running()||e>0.0) {Phase::Warning} else if self.running()||e>0.0 {Phase::Running} else {Phase::Ready};
@@ -70,6 +78,9 @@ mod tests {
  #[test] fn qna_carries_integer_seconds_and_keeps_running_tick(){let mut c=Clock::new(300.0);c.toggle(0.0);c.switch_qna(300.0,true,120.25);assert_eq!(c.duration,480.0);assert_eq!(c.elapsed(120.25),0.25);assert_eq!(c.view(121.0,60.0,false,true,false).text,"07:59");}
  #[test] fn qna_paused_switch_starts_a_new_tick(){let mut c=Clock::new(300.0);c.toggle(0.0);c.toggle(120.25);c.switch_qna(300.0,false,900.0);assert!(c.running());assert_eq!(c.elapsed(900.0),0.0);assert_eq!(c.duration,300.0);}
  #[test] fn qna_auto_exact_boundary_and_zero_qna(){let mut c=Clock::new(300.0);c.toggle(0.0);c.auto_qna(0.0,301.0);assert!(c.qna);assert_eq!(c.view(301.0,60.0,false,true,false).text,"00:00");assert_eq!(c.view(302.0,60.0,false,true,false).text,"+00:01");}
+ #[test] fn next_change_is_the_next_whole_second(){let mut c=Clock::new(300.0);assert_eq!(c.next_change(5.0),None);c.toggle(10.0);assert_eq!(c.next_change(10.0),Some(1.0));assert_eq!(c.next_change(10.25),Some(0.75));assert_eq!(c.next_change(310.5),Some(0.5),"past the end the overtime counts on");c.toggle(311.0);assert_eq!(c.next_change(400.0),None);
+  // A length that is not whole seconds (after a carried Q&A tick): what is left reaches a whole second first.
+  let mut c=Clock::new(10.5);c.toggle(0.0);assert_eq!(c.next_change(0.25),Some(0.25));assert_eq!(c.next_change(0.75),Some(0.25));}
  #[test] fn reset_clears_qna(){let mut c=Clock::new(3.0);c.switch_qna(4.0,false,0.0);c.reset(300.0);assert!(!c.qna);assert!(!c.running());assert_eq!(c.duration,300.0);}
  // As in VS Event Timer 1.1.0: the bar and ring show what is left counting down, what has passed counting up.
  #[test] fn graph_drains_counting_down_and_fills_counting_up(){let mut c=Clock::new(300.0);assert_eq!(c.view(0.0,60.0,false,true,false).fill,1.0);assert_eq!(c.view(0.0,60.0,true,true,false).fill,0.0);c.toggle(0.0);assert_eq!(c.view(75.0,60.0,false,true,false).fill,0.75);assert_eq!(c.view(75.0,60.0,true,true,false).fill,0.25);assert_eq!(c.view(400.0,60.0,false,true,false).fill,0.0);assert_eq!(c.view(400.0,60.0,true,true,false).fill,1.0);assert_eq!(c.view(75.0,60.0,true,true,false).remaining,0.75);assert_eq!(Clock::new(0.0).view(0.0,0.0,false,true,false).fill,0.0);assert_eq!(Clock::new(0.0).view(0.0,0.0,true,true,false).fill,1.0);}

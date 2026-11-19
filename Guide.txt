@@ -111,6 +111,10 @@ Files and storage
   A chosen image is copied into this app's assets folder as PNG; the original is not changed.
   Settings are saved automatically to settings.json beside the app; the previous state stays in
   settings.backup.json.
+  If settings.json cannot be read, the program opens with the previous settings from
+  settings.backup.json; the unreadable file is kept as settings.unreadable.json at the next save.
+  If the program cannot start, or has to close because of a problem, it says so in a message box
+  and writes the details to error-log.txt beside the app.
   After installing, that place is the install folder (usually AppData\Local\Programs\Event
   Studio in your account).
   Without installing, use the program in a folder it can write to. Errors show at the bottom

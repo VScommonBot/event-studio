@@ -276,7 +276,7 @@ mod tests {
         let keys: HashSet<&str> = TABLE.iter().map(|row| row[0]).collect();
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut checked = 0;
-        for name in ["studio.rs", "scene.rs", "overlay.rs", "controls.rs", "setup.rs", "setup_ui.rs", "pack.rs", "shell.rs", "win.rs", "lang.rs", "main.rs", "timer.rs"] {
+        for name in ["studio.rs", "scene.rs", "overlay.rs", "controls.rs", "setup.rs", "setup_ui.rs", "pack.rs", "shell.rs", "win.rs", "lang.rs", "main.rs", "timer.rs", "report.rs"] {
             let source = std::fs::read_to_string(src.join(name)).unwrap();
             for (text, through) in literals(&source) {
                 if kept.contains(&text.as_str()) && !through {
