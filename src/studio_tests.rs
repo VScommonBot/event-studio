@@ -5,6 +5,71 @@ fn fixture(name:&str)->PathBuf{let p=PathBuf::from(env!("CARGO_MANIFEST_DIR")).j
 #[test] fn image_load_transparency(){let root=fixture("image-test");let path=root.join("한글 로고.png");let mut image=image::RgbaImage::new(120,60);image.put_pixel(20,20,image::Rgba([132,226,190,128]));image.save(&path).unwrap();let decoded=load_image(&path).unwrap();assert_eq!(decoded.dimensions(),(120,60));assert_eq!(decoded.get_pixel(20,20).0,[132,226,190,128]);}
 #[test] fn invalid_image_rejected(){let root=fixture("image-test");let path=root.join("not-an-image.png");std::fs::write(&path,b"not an image").unwrap();assert!(load_image(&path).is_err());}
 #[test] fn settings_atomic_save_and_backup(){let root=fixture("settings-test");let mut app=Studio::bare(Settings::default(),root.clone(),None);app.s.brand="first".into();app.save();assert_eq!(serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join("settings.json")).unwrap()).unwrap().brand,"first");app.s.brand="second".into();app.save();assert_eq!(serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join("settings.backup.json")).unwrap()).unwrap().brand,"first");assert_eq!(serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join("settings.json")).unwrap()).unwrap().brand,"second");assert!(!root.join("settings.pending.json").exists());}
+// A settings file that cannot be read: the backup opens instead, and stays the backup.
+fn clean_fixture(name:&str)->PathBuf{let root=fixture(name);for file in ["settings.json","settings.backup.json","settings.pending.json",UNREADABLE_NAME]{let _=std::fs::remove_file(root.join(file));}root}
+fn saved_brand(root:&Path,file:&str)->String{serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join(file)).unwrap()).unwrap().brand}
+#[test] fn unreadable_settings_open_from_the_backup_and_never_take_its_place(){
+ let root=clean_fixture("recover-test");let mut app=Studio::bare(Settings::default(),root.clone(),None);
+ for brand in ["first","second"]{app.s.brand=brand.into();app.save();}
+ std::fs::write(root.join("settings.json"),"{ not settings").unwrap();
+ let(s,warning)=load_settings(&root);assert_eq!(s.brand,"first");assert_eq!(warning.as_deref(),Some("저장 설정을 읽지 못해 직전에 저장한 설정으로 열었습니다."));
+ // Opening changed nothing on disk; the next save keeps the good backup and puts the unreadable file aside.
+ assert_eq!(std::fs::read_to_string(root.join("settings.json")).unwrap(),"{ not settings");assert!(!root.join(UNREADABLE_NAME).exists());
+ let mut app=Studio::bare(s,root.clone(),None);app.s.brand="third".into();app.save();
+ assert_eq!(saved_brand(&root,"settings.backup.json"),"first");assert_eq!(std::fs::read_to_string(root.join(UNREADABLE_NAME)).unwrap(),"{ not settings");assert_eq!(saved_brand(&root,"settings.json"),"third");
+ // From then on a save backs up what it replaces, as before.
+ app.s.brand="fourth".into();app.save();assert_eq!((saved_brand(&root,"settings.backup.json"),saved_brand(&root,"settings.json")),("third".into(),"fourth".into()));
+}
+#[test] fn settings_from_a_build_with_values_this_one_lacks_open_from_the_backup(){
+ let root=clean_fixture("recover-newer-test");std::fs::write(root.join("settings.backup.json"),r#"{"brand":"kept","mode":"Bar"}"#).unwrap();std::fs::write(root.join("settings.json"),r#"{"brand":"newer","mode":"Dial"}"#).unwrap();
+ let(s,warning)=load_settings(&root);assert_eq!((s.brand.as_str(),s.mode,warning.is_some()),("kept",Mode::Bar,true));
+}
+#[test] fn without_a_readable_backup_or_without_settings_it_is_a_first_start(){
+ let root=clean_fixture("recover-none-test");let first=Settings::first(Lang::system());
+ // No settings file: a first start without a warning, even if a backup was left behind (deleting settings.json starts afresh).
+ std::fs::write(root.join("settings.backup.json"),r#"{"brand":"left behind"}"#).unwrap();
+ let(s,warning)=load_settings(&root);assert_eq!((s.brand,warning),(first.brand.clone(),None));
+ // Neither file can be read: a first start, and the person is told.
+ for file in ["settings.json","settings.backup.json"]{std::fs::write(root.join(file),[0xff,0xfe,0x00]).unwrap();}
+ let(s,warning)=load_settings(&root);assert_eq!(s.brand,first.brand);assert_eq!(warning.as_deref(),Some("저장 설정을 읽지 못해 기본 설정으로 열었습니다."));
+ // Saved values out of range are still brought into range.
+ std::fs::write(root.join("settings.json"),r#"{"volume":3.0,"logo_position":88}"#).unwrap();let(s,_)=load_settings(&root);assert_eq!((s.volume,s.logo_position),(1.0,5));
+}
+// How often the window is drawn again: only when what it shows changes, not 60 times a second throughout.
+fn rested(root:&str)->Studio{let mut app=Studio::bare(Settings::default(),fixture(root),None);app.frames=1000;app.activity=Instant::now().checked_sub(Duration::from_secs(4)).expect("the computer has been on for four seconds");app}
+fn wait_of(app:&Studio)->f64{app.next_frame_in().expect("a frame is due").as_secs_f64()}
+#[test] fn a_window_where_nothing_moves_is_not_drawn_again_by_itself(){
+ let mut app=rested("frames-test");assert_eq!(app.next_frame_in(),None);
+ // The mouse just moved: once more when the hover buttons are due to hide.
+ app.activity=Instant::now();let wait=wait_of(&app);assert!(wait>2.0&&wait<=CONTROLS_IDLE+0.01,"{wait}");
+ // The audience window has hover buttons of its own.
+ let mut app=rested("frames-test");app.audience_activity=Instant::now();assert_eq!(app.next_frame_in(),None);app.audience=true;assert!(wait_of(&app)<=CONTROLS_IDLE+0.01);
+ // A changed setting: when it is due to be saved.
+ let mut app=rested("frames-test");app.dirty_since=Some(Instant::now());let wait=wait_of(&app);assert!(wait>0.3&&wait<=0.61,"{wait}");
+}
+#[test] fn a_running_timer_is_drawn_at_each_second_and_its_graph_in_small_steps(){
+ let mut app=rested("frames-test");app.s.mode=Mode::Number;app.toggle();let wait=wait_of(&app);assert!(wait>0.5&&wait<=1.01,"{wait}");
+ // The ring of a five-minute timer: 3000 steps, one every tenth of a second.
+ app.s.mode=Mode::Circle;let wait=wait_of(&app);assert!((0.09..=0.11).contains(&wait),"{wait}");
+ // A long timer never less than four times a second, a short one never more than every frame.
+ app.clock.duration=7200.0;let wait=wait_of(&app);assert!((0.24..=0.26).contains(&wait),"{wait}");
+ app.s.mode=Mode::Bar;app.clock.duration=20.0;let wait=wait_of(&app);assert!((0.016..=0.02).contains(&wait),"{wait}");
+ // Past the end the graph stands still: back to once a second for the overtime.
+ app.clock.accumulated=40.0;let wait=wait_of(&app);assert!(wait>0.5&&wait<=1.01,"{wait}");
+ // Paused: nothing moves.
+ app.toggle();assert_eq!(app.next_frame_in(),None);
+}
+#[test] fn the_floating_timer_a_drag_and_a_check_keep_their_own_pace(){
+ // The floating timer is put back on top once a second, and blinks twice a second at the end.
+ let mut app=rested("frames-test");app.overlay=true;app.last_topmost=app.now();let wait=wait_of(&app);assert!(wait>0.5&&wait<=TOPMOST_EVERY+0.01,"{wait}");
+ app.flash_since=Some(Instant::now());let wait=wait_of(&app);assert!(wait>0.2&&wait<=0.51,"{wait}");
+ // Every frame: a drag, a window being placed or settling, a check's fixed state.
+ let mut app=rested("frames-test");app.gesture=Some(Gesture{kind:GestureKind::Move,cursor:(0,0),rect:win::PxRect{x:0,y:0,w:360,h:200},moved:false});assert_eq!(app.next_frame_in(),Some(FRAME));
+ let mut app=rested("frames-test");app.geometry=Some((win::PxRect{x:0,y:0,w:360,h:200},app.frames));assert_eq!(app.next_frame_in(),Some(FRAME));
+ let mut app=rested("frames-test");app.settle();assert_eq!(app.next_frame_in(),Some(FRAME));app.frames+=SETTLE_FRAMES;assert_eq!(app.next_frame_in(),None);
+ let mut app=rested("frames-test");app.steady=true;assert_eq!(app.next_frame_in(),Some(FRAME));
+ assert_eq!(Studio::bare(Settings::default(),fixture("frames-test"),None).next_frame_in(),Some(FRAME),"the first frames of a start");
+}
 #[test] fn older_settings_get_floating_defaults(){let s:Settings=serde_json::from_str(r#"{"brand":"B","mode":"Bar"}"#).unwrap();assert!(!s.overlay_start&&s.overlay_top_right&&!s.overlay_scene&&!s.hotkeys);assert_eq!(s.overlay_backdrop,0.0);assert!(s.overlay_rect.is_none());}
 #[test] fn floating_settings_limits(){let mut s:Settings=serde_json::from_str(r#"{"overlay_backdrop":3.0,"overlay_rect":[10,10,0,5]}"#).unwrap();s.normalize();assert_eq!(s.overlay_backdrop,BACKDROP_MAX);assert!(s.overlay_rect.is_none());let mut s:Settings=serde_json::from_str(r#"{"overlay_backdrop":-1.0,"overlay_rect":[10,10,360,200]}"#).unwrap();s.normalize();assert_eq!(s.overlay_backdrop,0.0);assert_eq!(s.overlay_rect,Some([10,10,360,200]));}
 #[test] fn floating_status_lines(){let mut c=Clock::new(300.0);let v=c.view(0.0,60.0,false,true,false);assert_eq!(overlay::status_text(&v,false,false,false,false,300.0),"");assert_eq!(overlay::status_text(&v,true,false,false,false,300.0),"목표 05:00");c.toggle(0.0);let v=c.view(250.0,60.0,false,true,false);assert_eq!(overlay::status_text(&v,false,true,true,false,300.0),"곧 종료");let v=c.view(300.5,60.0,false,true,false);assert_eq!(overlay::status_text(&v,false,true,true,false,300.0),"시간 종료");let v=c.view(302.0,60.0,false,true,false);assert_eq!(overlay::status_text(&v,false,true,true,false,300.0),"시간 초과");c.toggle(100.0);let v=c.view(100.0,60.0,false,true,false);assert_eq!(overlay::status_text(&v,false,false,true,false,300.0),"일시정지");}

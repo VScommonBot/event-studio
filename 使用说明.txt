@@ -96,6 +96,9 @@ Event Studio — 品牌活动计时器
   图片最大 40MB，宽和高各不超过 8192px。
   所选图片会以 PNG 格式复制到本程序的 assets 文件夹中，原文件不会被更改。
   设置会自动保存到程序旁边的 settings.json 中，上一次的内容保留在 settings.backup.json 中。
+  如果无法读取 settings.json，程序会用 settings.backup.json 中上一次的设置打开；无法读取的文件会在下次保存时
+  另存为 settings.unreadable.json。
+  程序无法启动或因出现问题而关闭时，会弹出提示窗口，并把详细信息写入程序旁边的 error-log.txt。
   安装后，这个位置就是安装文件夹（通常是您账户下的 AppData\Local\Programs\Event Studio）。
   免安装使用时，请在可写入的文件夹中使用。错误信息会显示在窗口底部。
   品牌标志和照片请使用您有权使用的文件。

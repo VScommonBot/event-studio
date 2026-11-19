@@ -23,6 +23,8 @@ A **branded timer for events and presentations** on Windows, written in Rust wit
 - **설치 파일 만들기**: 프로그램이 지금 설정과 이미지를 담아 스스로 설치 파일이 됩니다.
   관리자 권한 없이 사용자 계정에 설치되고, Windows 설정의 앱 목록에서 제거할 수 있습니다.
 - 설정은 프로그램 옆의 `settings.json`에만 저장되며 인터넷 연결을 쓰지 않습니다.
+  `settings.json`을 읽을 수 없으면 직전 설정(`settings.backup.json`)으로 열고, 시작하지 못하거나 오류로 끝나면
+  안내 창을 띄우고 `error-log.txt`에 기록합니다.
 
 | 투명 타이머 | 설치 창 |
 |---|---|
@@ -76,6 +78,7 @@ cargo test
 | `src/lang.rs`, `src/strings.rs` | 네 언어의 문구 표와 언어 전환 |
 | `src/pack.rs`, `src/setup.rs`, `src/setup_ui.rs`, `src/shell.rs` | 설치 파일 형식, 설치 · 제거, 설치 창, 바로 가기와 앱 목록 |
 | `src/icon_art.rs`, `build.rs` | 프로그램 아이콘 그리기와 버전 정보 |
+| `src/report.rs` | 시작하지 못했거나 오류로 끝날 때의 안내 창과 `error-log.txt` 기록 |
 
 영어 · 중국어 · 일본어 문구는 원어민 검수를 거치지 않았습니다. 어색한 표현은 `src/strings.rs`의 해당 줄을 고쳐 보내 주시면 됩니다.
 
@@ -110,6 +113,8 @@ digits. A dark logo that would be hard to see on the dark stage is shown in whit
   images. It installs per user without administrator rights and can be removed from Windows'
   list of installed apps.
 - Settings live in `settings.json` beside the program; nothing is sent anywhere.
+  If `settings.json` cannot be read the previous settings (`settings.backup.json`) are used; a start
+  that fails or a fault that ends the program is shown in a message box and written to `error-log.txt`.
 
 Guides: [Guide.txt](Guide.txt) (English), [사용안내.txt](사용안내.txt), [使用说明.txt](使用说明.txt), [使い方.txt](使い方.txt).
 
