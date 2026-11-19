@@ -2,8 +2,11 @@
 
 Event Studio is built with the open-source libraries below (the Windows build, from `Cargo.lock`;
 those the macOS build adds are listed after them).
-Each is used under the licence its authors name; the licence texts are in each library's
-repository and in its package on [crates.io](https://crates.io).
+Each is used under the licence its authors name. The licence texts themselves are in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), which goes with every copy of the program: the Windows
+setup installs it, the macOS app carries it, and "오픈소스 라이선스" (Open-source licences) at the bottom of the
+editor writes it out. It is made with `cargo about` from `packaging/licenses` and has to be made again
+when the libraries change.
 
 The fonts built into the program come with egui (`epaint_default_fonts`): Ubuntu Light (Ubuntu Font
 Licence 1.0), Hack (MIT), Noto Emoji (SIL Open Font License 1.1) and emoji-icon-font (MIT). Korean,

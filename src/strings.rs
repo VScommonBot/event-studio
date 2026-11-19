@@ -315,6 +315,10 @@ pub static TABLE: &[[&str; 4]] = &[
     ["설치중", "Installing", "正在安装", "インストール中"],
     ["잠시 기다려 주세요.", "Please wait.", "请稍候。", "しばらくお待ちください。"],
     ["진행할 수 없습니다", "Cannot continue", "无法继续", "続行できません"],
+    // The licences of what the program is built with.
+    ["오픈소스 라이선스", "Open-source licences", "开源许可", "オープンソースライセンス"],
+    ["함께 쓰인 오픈소스 라이브러리와 글꼴의 라이선스를 파일로 저장해 보여 줍니다", "Saves the licences of the open-source libraries and fonts used, and shows the file", "将所用开源库和字体的许可保存为文件并显示", "使用しているオープンソースライブラリとフォントのライセンスをファイルに保存して表示します"],
+    ["오픈소스 라이선스를 저장했습니다: {0}", "Open-source licences saved: {0}", "已保存开源许可：{0}", "オープンソースライセンスを保存しました: {0}"],
     // When the program cannot go on (report.rs).
     ["Event Studio를 시작하지 못했습니다.", "Event Studio could not start.", "无法启动 Event Studio。", "Event Studio を起動できませんでした。"],
     ["그래픽 드라이버가 없거나 원격 데스크톱으로 연결한 화면에서는 창을 열지 못할 수 있습니다.", "The window may fail to open on a computer without a graphics driver, or over a remote desktop connection.", "在没有显卡驱动的电脑上，或通过远程桌面连接时，可能无法打开窗口。", "グラフィックドライバーがないパソコンや、リモートデスクトップで接続した画面では、ウィンドウを開けないことがあります。"],

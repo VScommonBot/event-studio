@@ -6,7 +6,9 @@
 !/.gitattributes
 !/LICENSE
 !/README.md
+!/CHANGELOG.md
 !/THIRD-PARTY-NOTICES.md
+!/THIRD-PARTY-LICENSES.txt
 !/Cargo.toml
 !/Cargo.lock
 !/build.rs

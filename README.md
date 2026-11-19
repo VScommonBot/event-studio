@@ -30,6 +30,8 @@ A **branded timer for events and presentations** on Windows and macOS, written i
 |---|---|
 | ![투명 타이머](docs/floating.png) | ![설치 창](docs/setup-en.png) |
 
+버전별로 바뀐 내용은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+
 자세한 사용법은 [사용안내.txt](사용안내.txt) · [Guide.txt](Guide.txt) · [使用说明.txt](使用说明.txt) · [使い方.txt](使い方.txt)에 있습니다.
 
 ## 내려받기
@@ -104,8 +106,9 @@ cargo test
 
 벤처스퀘어의 행사용 발표 타이머 VS Event Timer의 뒤를 잇는 프로그램으로, Rust와 egui로 새로 만들었습니다.
 
-[MIT 라이선스](LICENSE)로 공개합니다. 함께 쓰인 오픈소스 라이브러리와 글꼴의 라이선스는
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에 있습니다.
+[MIT 라이선스](LICENSE)로 공개합니다. 함께 쓰인 오픈소스 라이브러리와 글꼴의 목록은
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)에, 라이선스 전문은 [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt)에
+있습니다. 전문은 설치본과 macOS 앱에 함께 들어가고, 편집 화면 아래의 "오픈소스 라이선스"로 열 수 있습니다.
 
 ---
 
@@ -186,5 +189,6 @@ to `src/strings.rs` are welcome.
 ### Licence
 
 [MIT](LICENSE). Event Studio follows VS Event Timer, VentureSquare's presentation timer for its
-own events, and was written anew in Rust with egui. The licences of the open-source libraries and
-fonts it is built with are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+own events, and was written anew in Rust with egui. The open-source libraries and fonts it is built
+with are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and their licences are in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), which goes with every copy of the program.

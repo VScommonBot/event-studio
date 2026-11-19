@@ -18,10 +18,9 @@ const LOG_NAME_ELSEWHERE: &str = "EventStudio-error-log.txt";
 /// A log that has grown beyond this starts again.
 const LOG_MOST: u64 = 256 * 1024;
 
-/// Seconds since 1970 as `2026-11-19 08:09:10 UTC` (the days become a date by the usual
-/// arithmetic on 400-year eras that start on 1 March).
-fn stamp(secs: u64) -> String {
-    let (days, rest) = ((secs / 86_400) as i64, secs % 86_400);
+/// The date of a day counted from 1 January 1970, as year, month and day (the usual arithmetic
+/// on 400-year eras that start on 1 March).
+fn date(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let (era, day_of_era) = (z.div_euclid(146_097), z.rem_euclid(146_097));
     let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
@@ -29,8 +28,22 @@ fn stamp(secs: u64) -> String {
     let march_month = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * march_month + 2) / 5 + 1;
     let month = if march_month < 10 { march_month + 3 } else { march_month - 9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    (year_of_era + era * 400 + i64::from(month <= 2), month, day)
+}
+
+/// Seconds since 1970 as `2026-11-19 08:09:10 UTC`.
+fn stamp(secs: u64) -> String {
+    let ((year, month, day), rest) = (date((secs / 86_400) as i64), secs % 86_400);
     format!("{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC", rest / 3600, rest / 60 % 60, rest % 60)
+}
+
+fn now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// The year it is (by universal time): what the subtitle of a new set of settings starts with.
+pub fn this_year() -> i64 {
+    date((now() / 86_400) as i64).0
 }
 
 fn append(path: &Path, text: &str) -> std::io::Result<()> {
@@ -46,8 +59,7 @@ fn entry(secs: u64, what: &str) -> String {
 
 /// Adds an entry to the log in the first of `folders` that can be written, and says which file that was.
 fn log_in(folders: &[(PathBuf, &str)], what: &str) -> Option<PathBuf> {
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let text = entry(secs, what);
+    let text = entry(now(), what);
     folders.iter().map(|(folder, name)| folder.join(name)).find(|file| append(file, &text).is_ok())
 }
 
@@ -134,6 +146,8 @@ mod tests {
         assert_eq!(stamp(1_709_208_000), "2024-02-29 12:00:00 UTC");
         assert_eq!(stamp(1_795_075_750), "2026-11-19 08:09:10 UTC");
         assert_eq!(stamp(4_102_444_799), "2099-12-31 23:59:59 UTC");
+        assert_eq!((date(0), date(-1), date(20_776)), ((1970, 1, 1), (1969, 12, 31), (2026, 11, 19)));
+        assert!(this_year() >= 2026);
     }
 
     #[test]

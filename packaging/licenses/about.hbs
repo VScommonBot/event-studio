@@ -1,0 +1,28 @@
+Event Studio: licences of the open-source libraries and fonts it is built with
+==============================================================================
+
+Event Studio itself is published under the MIT licence (LICENSE). The program contains the
+libraries below, each used under the licence its authors name; the texts of those licences
+follow, each with the libraries it covers. The fonts built into the program come with the
+egui libraries (epaint_default_fonts): Ubuntu Light, Hack, Noto Emoji and emoji-icon-font.
+
+This file is made by `cargo about` from packaging/licenses (see about.toml there).
+
+Licences in this file
+---------------------
+{{#each overview}}
+  {{{name}}} ({{count}})
+{{/each}}
+
+{{#each licenses}}
+
+------------------------------------------------------------------------------
+{{{name}}}
+------------------------------------------------------------------------------
+Used by:
+{{#each used_by}}
+  {{crate.name}} {{crate.version}}{{#if crate.repository}}  {{{crate.repository}}}{{/if}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

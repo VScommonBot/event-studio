@@ -5,6 +5,17 @@ fn fixture(name:&str)->PathBuf{let p=PathBuf::from(env!("CARGO_MANIFEST_DIR")).j
 #[test] fn image_load_transparency(){let root=fixture("image-test");let path=root.join("한글 로고.png");let mut image=image::RgbaImage::new(120,60);image.put_pixel(20,20,image::Rgba([132,226,190,128]));image.save(&path).unwrap();let decoded=load_image(&path).unwrap();assert_eq!(decoded.dimensions(),(120,60));assert_eq!(decoded.get_pixel(20,20).0,[132,226,190,128]);}
 #[test] fn invalid_image_rejected(){let root=fixture("image-test");let path=root.join("not-an-image.png");std::fs::write(&path,b"not an image").unwrap();assert!(load_image(&path).is_err());}
 #[test] fn settings_atomic_save_and_backup(){let root=fixture("settings-test");let mut app=Studio::bare(Settings::default(),root.clone(),None);app.s.brand="first".into();app.save();assert_eq!(serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join("settings.json")).unwrap()).unwrap().brand,"first");app.s.brand="second".into();app.save();assert_eq!(serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join("settings.backup.json")).unwrap()).unwrap().brand,"first");assert_eq!(serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join("settings.json")).unwrap()).unwrap().brand,"second");assert!(!root.join("settings.pending.json").exists());}
+// A picture larger than its slot needs is made smaller in its own proportions; a logo's see-through surroundings do not tint it.
+#[test] fn large_pictures_are_made_smaller_and_keep_their_colours(){
+ assert_eq!(fit_within(image::RgbaImage::new(8000,400),BACKGROUND_SIDE).dimensions(),(3840,192));assert_eq!(fit_within(image::RgbaImage::new(100,5000),LOGO_SIDE).dimensions(),(41,2048));assert_eq!(fit_within(image::RgbaImage::new(8192,1),BACKGROUND_SIDE).dimensions(),(3840,1));
+ assert_eq!(fit_within(image::RgbaImage::new(3840,216),BACKGROUND_SIDE).dimensions(),(3840,216),"a picture that fits stays as it is");assert_eq!((side_for(0),side_for(1),side_for(2)),(BACKGROUND_SIDE,LOGO_SIDE,LOGO_SIDE));
+ // Left half see-through green, right half solid red: at the seam the colour is red, only fainter.
+ let logo=image::RgbaImage::from_fn(4096,64,|x,_|if x<2048{image::Rgba([0,255,0,0])}else{image::Rgba([200,30,40,255])});let small=fit_within(logo,LOGO_SIDE);assert_eq!(small.dimensions(),(2048,32));
+ assert_eq!(small.get_pixel(0,10).0[3],0);assert_eq!(small.get_pixel(2047,10).0,[200,30,40,255]);
+ for x in 1020..1028{let p=small.get_pixel(x,10).0;if p[3]>0{assert!(p[1]<=31&&p[0]>=199,"{x}: {p:?}");}}
+ // An opaque picture keeps its colours exactly.
+ let flat=fit_within(image::RgbaImage::from_pixel(8192,16,image::Rgba([12,34,56,255])),BACKGROUND_SIDE);assert!(flat.pixels().all(|p|p.0==[12,34,56,255]));
+}
 // A settings file that cannot be read: the backup opens instead, and stays the backup.
 fn clean_fixture(name:&str)->PathBuf{let root=fixture(name);for file in ["settings.json","settings.backup.json","settings.pending.json",UNREADABLE_NAME]{let _=std::fs::remove_file(root.join(file));}root}
 fn saved_brand(root:&Path,file:&str)->String{serde_json::from_str::<Settings>(&std::fs::read_to_string(root.join(file)).unwrap()).unwrap().brand}

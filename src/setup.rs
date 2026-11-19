@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 
 pub const APP_NAME: &str = "Event Studio";
 pub const EXE_NAME: &str = "EventStudio.exe";
-pub const SETUP_NAME: &str = "EventStudio_Setup.exe";
+/// The name a setup file is offered under, with the version in it as on the download page.
+pub const SETUP_NAME: &str = concat!("EventStudio-", env!("CARGO_PKG_VERSION"), "-Setup.exe");
 /// The guide in each language, in `Lang::ALL` order: its file name and its text. All four are
 /// installed, so the right one is there whichever language the program is switched to later.
 const GUIDES: [(&str, &[u8]); 4] = [
@@ -26,6 +27,10 @@ const GUIDES: [(&str, &[u8]); 4] = [
     ("使い方.txt", include_bytes!("../使い方.txt")),
 ];
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The licences of the libraries and fonts the program is built with, in full: they go wherever
+/// the program goes (the install folder; the editor writes them out on request).
+pub const LICENSES_NAME: &str = "THIRD-PARTY-LICENSES.txt";
+pub const LICENSES: &[u8] = include_bytes!("../THIRD-PARTY-LICENSES.txt");
 
 /// Where Windows keeps its list of installed apps, for the signed-in person.
 const ENTRY_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\EventStudio";
@@ -371,6 +376,8 @@ pub fn install(pack: &Pack, places: &Places, o: &Options) -> Result<Installed, S
         std::fs::write(&guide, text).map_err(|e| problem(t("사용안내 복사"), &guide, e))?;
     }
     let guide = dir.join(GUIDES[o.language as usize].0);
+    let licenses = dir.join(LICENSES_NAME);
+    std::fs::write(&licenses, LICENSES).map_err(|e| problem(t("사용안내 복사"), &licenses, e))?;
     std::fs::write(dir.join(MARKER_NAME), t(MARKER)).map_err(|e| problem(t("설치 표시"), &dir, e))?;
     let settings = unpack_settings(pack, &dir, o.replace_settings)?;
     // With no settings from the setup file or from an earlier install, the program would open in
@@ -438,7 +445,7 @@ pub fn uninstall(dir: &Path, places: &Places, remove_data: bool, patience: Durat
         places.entry_delete()?;
     }
     // (The log of faults is the program's own by-product, not something the person set up: it goes with the program.)
-    for name in GUIDES.into_iter().map(|(name, _)| name).chain([FRESH_NAME, EXE_NAME, crate::report::LOG_NAME]) {
+    for name in GUIDES.into_iter().map(|(name, _)| name).chain([FRESH_NAME, EXE_NAME, LICENSES_NAME, crate::report::LOG_NAME]) {
         delete(dir.join(name), &mut left);
     }
     if remove_data {
@@ -542,7 +549,9 @@ pub fn show_in_folder(file: &Path) {
         use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new("explorer.exe").raw_arg(format!("/select,\"{}\"", file.display())).spawn();
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("/usr/bin/open").arg("-R").arg(file).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = file;
 }
 
@@ -762,6 +771,7 @@ mod tests {
         assert_eq!(bench.brand(), "첫 브랜드");
         assert_eq!(std::fs::read(dir.join("assets/brand-logo.png")).unwrap(), [1, 2, 3]);
         assert!(dir.join("assets/alert.mp3").is_file() && dir.join(MARKER_NAME).is_file() && !dir.join(FRESH_NAME).exists());
+        assert_eq!(std::fs::read(dir.join(LICENSES_NAME)).unwrap(), LICENSES, "the licences go with the program");
         let menu = bench.root.join("box/StartMenu").join(APP_NAME);
         assert_eq!(shell::link_target(&menu.join(LINK_APP)).unwrap(), dir.join(EXE_NAME));
         assert_eq!(shell::link_target(&menu.join(LINK_GUIDES[0])).unwrap(), dir.join(GUIDES[0].0));
