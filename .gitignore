@@ -27,3 +27,4 @@
 !/checks/verify-floating.ps1
 !/checks/verify-languages.ps1
 !/checks/verify-setup.ps1
+!/checks/verify-macos.sh

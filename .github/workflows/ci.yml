@@ -53,3 +53,12 @@ jobs:
           name: EventStudio-macos
           path: dist/macos/*.dmg
           if-no-files-found: error
+      # The app is started for real: each window is drawn into a picture (checks/verify-macos.sh).
+      - name: Start the app and draw its windows
+        run: checks/verify-macos.sh "dist/macos/Event Studio.app/Contents/MacOS/EventStudio" dist/macos/shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EventStudio-macos-pictures
+          path: dist/macos/shots
+          if-no-files-found: warn
