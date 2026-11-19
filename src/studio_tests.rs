@@ -1,3 +1,5 @@
+// (A test sets up the settings it is about field by field.)
+#![allow(clippy::field_reassign_with_default)]
 use super::*;
 fn fixture(name: &str) -> PathBuf {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("checks").join(name);

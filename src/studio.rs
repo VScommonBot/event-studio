@@ -399,10 +399,10 @@ fn fit_within(mut im: image::RgbaImage, side: u32) -> image::RgbaImage {
     }
     let mut small = image::imageops::thumbnail(&im, scaled(w), scaled(h));
     for p in small.pixels_mut() {
-        let a = p[3] as u32;
-        if a > 0 {
+        // (A pixel that is wholly see-through has no colour to give back.)
+        if let Some(a) = std::num::NonZeroU32::new(p[3] as u32) {
             for c in 0..3 {
-                p[c] = ((p[c] as u32 * 255 + a / 2) / a).min(255) as u8;
+                p[c] = ((p[c] as u32 * 255 + a.get() / 2) / a).min(255) as u8;
             }
         }
     }
@@ -466,7 +466,7 @@ fn mean_color(im: &image::RgbaImage) -> ([f32; 3], f32) {
 /// One channel through a colour transform: the multiplier in 1/256 (256 keeps the channel as it is),
 /// the offset in colour units, the result kept within 0..255.
 fn transform_channel(c: u8, multiplier: i32, offset: i32) -> u8 {
-    ((c as i32 * multiplier >> 8) + offset).clamp(0, 255) as u8
+    (((c as i32 * multiplier) >> 8) + offset).clamp(0, 255) as u8
 }
 /// The picture with every pixel white and its transparency kept: multipliers 0 and offsets 255 on
 /// red, green and blue, multiplier 256 and offset 0 on the alpha.
@@ -888,19 +888,69 @@ impl Studio {
     fn packer_window(&mut self, ctx: &Context) {
         let Some(mut p) = self.packer.take() else { return };
         let (mut open, mut close) = (true, false);
-        Window::new(t("설치 파일 만들기")).collapsible(false).resizable(false).open(&mut open).anchor(Align2::CENTER_CENTER,[0.0,0.0]).show(ctx,|ui|{ui.set_width(430.0);
-   ui.label(t("지금 쓰는 Event Studio를 설치 파일 하나로 묶습니다. 그 파일을 실행하면 프로그램이 설치되고 바탕 화면과 시작 메뉴에 바로 가기가 생깁니다. 관리자 권한은 필요 없습니다."));
-   ui.add_space(4.0);ui.checkbox(&mut p.with_settings,t("지금 브랜드 · 행사 설정과 이미지도 함께 담기"));
-   ui.label(RichText::new(t("담으면 설치한 컴퓨터에서 지금 이 화면 그대로 시작합니다. 그 컴퓨터에 이미 저장된 설정이 있으면 그대로 둘지 바꿀지 설치할 때 고릅니다.")).size(11.0).color(MUTED));ui.add_space(6.0);
-   match p.made.clone(){
-    Some(path)=>{ui.label(RichText::new(t("설치 파일을 만들었습니다")).color(self.s.accent()).strong());ui.label(RichText::new(path.display().to_string()).size(12.0).color(MUTED));ui.horizontal(|ui|{if ui.button(t("폴더 열기")).clicked(){setup::show_in_folder(&path);}if ui.button(t("하나 더 만들기")).clicked(){p.made=None;}if ui.button(t("닫기")).clicked(){close=true;}});},
-    None=>if ui.add_sized([ui.available_width(),42.0],Button::new(RichText::new(t("저장할 곳 고르고 만들기")).color(BG).strong()).fill(self.s.accent()).corner_radius(9)).clicked(){
-     if let Some(out)=rfd::FileDialog::new().set_title(t("설치 파일을 저장할 곳")).set_file_name(setup::SETUP_NAME).add_filter(t("설치 파일"),&["exe"]).save_file(){
-      let out=if out.extension().is_some_and(|e|e.eq_ignore_ascii_case("exe")){out}else{out.with_extension("exe")};let text=serde_json::to_string_pretty(&self.s).unwrap();
-      match setup::make_setup_here(&out,p.with_settings.then_some((text.as_str(),self.root.as_path()))){Ok(_)=>{p.made=Some(out);p.error=None;self.status=t("설치 파일을 만들었습니다").into();},Err(e)=>p.error=Some(e)}}},
-   }
-   if let Some(e)=&p.error{ui.label(RichText::new(e).color(END).size(12.0));}
-  });
+        let what_it_does = t("지금 쓰는 Event Studio를 설치 파일 하나로 묶습니다. 그 파일을 실행하면 프로그램이 설치되고 바탕 화면과 시작 메뉴에 바로 가기가 생깁니다. 관리자 권한은 필요 없습니다.");
+        let what_goes_along = t(
+            "담으면 설치한 컴퓨터에서 지금 이 화면 그대로 시작합니다. 그 컴퓨터에 이미 저장된 설정이 있으면 그대로 둘지 바꿀지 설치할 때 고릅니다.",
+        );
+        Window::new(t("설치 파일 만들기")).collapsible(false).resizable(false).open(&mut open).anchor(Align2::CENTER_CENTER, [0.0, 0.0]).show(
+            ctx,
+            |ui| {
+                ui.set_width(430.0);
+                ui.label(what_it_does);
+                ui.add_space(4.0);
+                ui.checkbox(&mut p.with_settings, t("지금 브랜드 · 행사 설정과 이미지도 함께 담기"));
+                ui.label(RichText::new(what_goes_along).size(11.0).color(MUTED));
+                ui.add_space(6.0);
+                match p.made.clone() {
+                    Some(path) => {
+                        ui.label(RichText::new(t("설치 파일을 만들었습니다")).color(self.s.accent()).strong());
+                        ui.label(RichText::new(path.display().to_string()).size(12.0).color(MUTED));
+                        ui.horizontal(|ui| {
+                            if ui.button(t("폴더 열기")).clicked() {
+                                setup::show_in_folder(&path);
+                            }
+                            if ui.button(t("하나 더 만들기")).clicked() {
+                                p.made = None;
+                            }
+                            if ui.button(t("닫기")).clicked() {
+                                close = true;
+                            }
+                        });
+                    }
+                    None => {
+                        if ui
+                            .add_sized(
+                                [ui.available_width(), 42.0],
+                                Button::new(RichText::new(t("저장할 곳 고르고 만들기")).color(BG).strong()).fill(self.s.accent()).corner_radius(9),
+                            )
+                            .clicked()
+                        {
+                            if let Some(out) = rfd::FileDialog::new()
+                                .set_title(t("설치 파일을 저장할 곳"))
+                                .set_file_name(setup::SETUP_NAME)
+                                .add_filter(t("설치 파일"), &["exe"])
+                                .save_file()
+                            {
+                                let out =
+                                    if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) { out } else { out.with_extension("exe") };
+                                let text = serde_json::to_string_pretty(&self.s).unwrap();
+                                match setup::make_setup_here(&out, p.with_settings.then_some((text.as_str(), self.root.as_path()))) {
+                                    Ok(_) => {
+                                        p.made = Some(out);
+                                        p.error = None;
+                                        self.status = t("설치 파일을 만들었습니다").into();
+                                    }
+                                    Err(e) => p.error = Some(e),
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(e) = &p.error {
+                    ui.label(RichText::new(e).color(END).size(12.0));
+                }
+            },
+        );
         if open && !close {
             self.packer = Some(p);
         }
@@ -1795,7 +1845,9 @@ fn postscript_names(face: &ttf_parser::Face) -> Vec<String> {
 /// read once and kept for as long as the program runs, so switching languages back and forth
 /// neither reads nor holds it again.
 fn system_font(face: Face) -> Option<FontData> {
-    static READ: std::sync::OnceLock<std::sync::Mutex<HashMap<&'static str, Option<&'static [u8]>>>> = std::sync::OnceLock::new();
+    /// Each file read so far, by its name; `None` for one that could not be read.
+    type Files = HashMap<&'static str, Option<&'static [u8]>>;
+    static READ: std::sync::OnceLock<std::sync::Mutex<Files>> = std::sync::OnceLock::new();
     let (file, pick) = face;
     let bytes = (*READ.get_or_init(Default::default).lock().ok()?.entry(file).or_insert_with(|| {
         // (Joining a whole path leaves it as it is.)

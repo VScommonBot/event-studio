@@ -223,7 +223,7 @@ pub fn write_setup(program: &Path, files: &[(String, Vec<u8>)], out: &Path) -> i
             app_check: check.value(),
             files: files.iter().map(|(name, data)| Item { name: name.clone(), len: data.len() as u64, check: Check::of(data) }).collect(),
         };
-        let raw = serde_json::to_vec(&index).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let raw = serde_json::to_vec(&index).map_err(io::Error::other)?;
         let mut f = std::fs::OpenOptions::new().append(true).open(&part)?;
         for (_, data) in files {
             f.write_all(data)?;

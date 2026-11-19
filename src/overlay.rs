@@ -101,13 +101,13 @@ impl Solid {
     }
 
     /// In window pixels, a little larger so the halo is never cut off by the window region.
-    pub(super) fn to_px(&self, ppp: f32) -> win::HitShape {
+    pub(super) fn to_px(self, ppp: f32) -> win::HitShape {
         let px = |r: Rect| {
             let r = r.expand(3.0);
             let (x, y) = ((r.min.x * ppp).floor() as i32, (r.min.y * ppp).floor() as i32);
             win::PxRect { x, y, w: (r.max.x * ppp).ceil() as i32 - x, h: (r.max.y * ppp).ceil() as i32 - y }
         };
-        match *self {
+        match self {
             Solid::Rect(r) => win::HitShape::Rect(px(r)),
             Solid::Disc(c, r) => win::HitShape::Ellipse(px(Rect::from_center_size(c, Vec2::splat(r * 2.0)))),
         }

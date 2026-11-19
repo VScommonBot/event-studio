@@ -157,7 +157,7 @@ pub(super) fn render(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, tex
     p.rect_stroke(rect, 12, Stroke::new(1.0_f32, LINE), StrokeKind::Inside);
     let pad = PAD * scale;
     let logo_box = LOGO_BOX * scale * (s.logo_size / 100.0);
-    let count = [&s.logo, &s.logo2].into_iter().filter(|key| textures.contains_key(*key)).count();
+    let count = [&s.logo, &s.logo2].into_iter().filter(|key| textures.contains_key(key)).count();
     let (brand, event, subtitle) = (s.brand.trim(), s.event.trim(), s.subtitle.trim());
     let stage = layout(
         rect,
@@ -174,7 +174,7 @@ pub(super) fn render(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, tex
     }
     let width = count as f32 * logo_box.x + (count.saturating_sub(1)) as f32 * 12.0 * scale;
     let bg = behind(s, textures);
-    for (idx, key) in [&s.logo, &s.logo2].into_iter().filter(|key| textures.contains_key(*key)).enumerate() {
+    for (idx, key) in [&s.logo, &s.logo2].into_iter().filter(|key| textures.contains_key(key)).enumerate() {
         if let Some((t, _)) = textures.logo(key, s.logo_tone, Some(bg)) {
             let left = match s.logo_position % 3 {
                 0 => rect.left() + pad,

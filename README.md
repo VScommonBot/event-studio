@@ -60,6 +60,7 @@ cargo test
 - 테스트는 임시 폴더와 `checks\` 아래에 작은 파일을 만들고, 레지스트리는 테스트용 임시 키만 만들었다가 지웁니다.
 - macOS에서는 `packaging/macos/bundle.sh`가 `Event Studio.app`(Apple Silicon + Intel)과 `.dmg`를 `dist/macos`에 만듭니다.
 - 풀 리퀘스트와 `main`에 올라온 변경은 GitHub Actions(`.github/workflows/ci.yml`)가 Windows와 macOS에서 빌드하고 테스트합니다.
+  소스는 `cargo fmt`(`rustfmt.toml`)로 서식을 맞추고 `cargo clippy --all-targets -- -D warnings`를 통과해야 합니다.
 
 ## macOS에서 다른 점
 
@@ -167,7 +168,8 @@ goes on. The command-line options and the source layout are listed in the Korean
 
 On a Mac, `packaging/macos/bundle.sh` builds `Event Studio.app` (Apple Silicon + Intel) and a `.dmg`
 in `dist/macos`. Every pull request is built and tested on Windows and macOS by GitHub Actions
-(`.github/workflows/ci.yml`).
+(`.github/workflows/ci.yml`); the source has to be laid out by `cargo fmt` and pass
+`cargo clippy --all-targets -- -D warnings`.
 
 ### On macOS
 

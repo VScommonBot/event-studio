@@ -11,6 +11,7 @@
 use std::path::Path;
 
 /// A shortcut file's contents.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Link<'a> {
     pub target: &'a Path,
     pub arguments: &'a str,
