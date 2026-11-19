@@ -113,7 +113,11 @@ impl<'de> Deserialize<'de> for Lang {
 /// line between brackets, in quotes when it has a hyphen: `(`, `    "ko-KR",`, `    en`, `)`.
 #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
 pub fn first_listed(printed: &str) -> Option<String> {
-    printed.lines().map(|line| line.trim().trim_end_matches(',').trim_matches('"')).find(|code| !code.is_empty() && *code != "(" && *code != ")").map(str::to_string)
+    printed
+        .lines()
+        .map(|line| line.trim().trim_end_matches(',').trim_matches('"'))
+        .find(|code| !code.is_empty() && *code != "(" && *code != ")")
+        .map(str::to_string)
 }
 
 static CURRENT: AtomicU8 = AtomicU8::new(0);
@@ -187,9 +191,18 @@ mod tests {
         // language under another id (en-GB, zh-TW, zh-HK, zh-SG); then languages without a table
         // (de-DE, es-ES, fr-FR) and no id at all, which get English.
         let cases = [
-            (0x0412, Lang::Ko), (0x0409, Lang::En), (0x0804, Lang::Zh), (0x0411, Lang::Ja),
-            (0x0809, Lang::En), (0x0404, Lang::Zh), (0x0c04, Lang::Zh), (0x1004, Lang::Zh),
-            (0x0407, Lang::En), (0x0c0a, Lang::En), (0x040c, Lang::En), (0x0000, Lang::En),
+            (0x0412, Lang::Ko),
+            (0x0409, Lang::En),
+            (0x0804, Lang::Zh),
+            (0x0411, Lang::Ja),
+            (0x0809, Lang::En),
+            (0x0404, Lang::Zh),
+            (0x0c04, Lang::Zh),
+            (0x1004, Lang::Zh),
+            (0x0407, Lang::En),
+            (0x0c0a, Lang::En),
+            (0x040c, Lang::En),
+            (0x0000, Lang::En),
         ];
         for (id, lang) in cases {
             assert_eq!(Lang::from_windows(id), lang, "{id:#06x}");
@@ -206,8 +219,16 @@ mod tests {
     #[test]
     fn language_codes_of_other_systems_map_to_the_four_languages() {
         let cases = [
-            ("ko-KR", Lang::Ko), ("ko", Lang::Ko), ("en-KR", Lang::En), ("zh-Hans-CN", Lang::Zh), ("zh-Hant-TW", Lang::Zh),
-            ("ja-JP", Lang::Ja), ("ja_JP.UTF-8", Lang::Ja), ("de-DE", Lang::En), ("C", Lang::En), ("", Lang::En),
+            ("ko-KR", Lang::Ko),
+            ("ko", Lang::Ko),
+            ("en-KR", Lang::En),
+            ("zh-Hans-CN", Lang::Zh),
+            ("zh-Hant-TW", Lang::Zh),
+            ("ja-JP", Lang::Ja),
+            ("ja_JP.UTF-8", Lang::Ja),
+            ("de-DE", Lang::En),
+            ("C", Lang::En),
+            ("", Lang::En),
         ];
         for (code, lang) in cases {
             assert_eq!(Lang::from_locale(code), lang, "{code:?}");
@@ -308,7 +329,22 @@ mod tests {
         let keys: HashSet<&str> = TABLE.iter().map(|row| row[0]).collect();
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut checked = 0;
-        for name in ["studio.rs", "scene.rs", "overlay.rs", "controls.rs", "setup.rs", "setup_ui.rs", "pack.rs", "shell.rs", "win.rs", "lang.rs", "main.rs", "timer.rs", "report.rs", "win_mac.rs"] {
+        for name in [
+            "studio.rs",
+            "scene.rs",
+            "overlay.rs",
+            "controls.rs",
+            "setup.rs",
+            "setup_ui.rs",
+            "pack.rs",
+            "shell.rs",
+            "win.rs",
+            "lang.rs",
+            "main.rs",
+            "timer.rs",
+            "report.rs",
+            "win_mac.rs",
+        ] {
             let source = std::fs::read_to_string(src.join(name)).unwrap();
             for (text, through) in literals(&source) {
                 if kept.contains(&text.as_str()) && !through {

@@ -175,7 +175,10 @@ mod tests {
     #[test]
     fn the_message_names_the_fault_and_the_log() {
         let file = Path::new("error-log.txt");
-        assert_eq!(message("끝납니다.", "panicked at src/x.rs:1:2", Some(file)), "끝납니다.\n\npanicked at src/x.rs:1:2\n\n자세한 내용을 이 파일에 적어 두었습니다:\nerror-log.txt");
+        assert_eq!(
+            message("끝납니다.", "panicked at src/x.rs:1:2", Some(file)),
+            "끝납니다.\n\npanicked at src/x.rs:1:2\n\n자세한 내용을 이 파일에 적어 두었습니다:\nerror-log.txt"
+        );
         assert_eq!(message("끝납니다.", "why", None), "끝납니다.\n\nwhy");
     }
 }

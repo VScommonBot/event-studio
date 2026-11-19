@@ -141,10 +141,11 @@ fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &Pictures, solid: &mu
     const PAD: f32 = 5.0;
     const LOGO: f32 = 22.0;
     let sizes = [11.5, 17.0, 10.5];
-    let lines: Vec<(&str, f32, Color32)> = [(s.brand.trim(), sizes[0], s.accent()), (s.event.trim(), sizes[1], WHITE), (s.subtitle.trim(), sizes[2], MUTED)]
-        .into_iter()
-        .filter(|line| !line.0.is_empty())
-        .collect();
+    let lines: Vec<(&str, f32, Color32)> =
+        [(s.brand.trim(), sizes[0], s.accent()), (s.event.trim(), sizes[1], WHITE), (s.subtitle.trim(), sizes[2], MUTED)]
+            .into_iter()
+            .filter(|line| !line.0.is_empty())
+            .collect();
     // What is behind the floating timer is whatever slide is up, so 자동 keeps a logo's own colours
     // here; 흰색 makes it white, with the same dark halo as the text.
     let logos: Vec<(&TextureHandle, bool)> = [&s.logo, &s.logo2].into_iter().filter_map(|key| textures.logo(key, s.logo_tone, None)).collect();

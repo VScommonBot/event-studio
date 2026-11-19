@@ -262,10 +262,7 @@ mod tests {
     }
 
     fn files() -> Vec<(String, Vec<u8>)> {
-        vec![
-            (SETTINGS.to_string(), br#"{"brand":"B"}"#.to_vec()),
-            ("assets/brand-logo.png".to_string(), vec![7u8; 5000]),
-        ]
+        vec![(SETTINGS.to_string(), br#"{"brand":"B"}"#.to_vec()), ("assets/brand-logo.png".to_string(), vec![7u8; 5000])]
     }
 
     #[test]
@@ -328,7 +325,19 @@ mod tests {
         for good in [SETTINGS, "assets/background.png", "assets/alert.mp3", "assets/partner-logo.png"] {
             assert!(safe_name(good), "{good}");
         }
-        for bad in ["", "settings.json.bak", "assets/", "assets/../settings.json", "assets/a/b.png", "assets\\a.png", "../x", "C:/x", "assets/.hidden", "assets/한글.png", "EventStudio.exe"] {
+        for bad in [
+            "",
+            "settings.json.bak",
+            "assets/",
+            "assets/../settings.json",
+            "assets/a/b.png",
+            "assets\\a.png",
+            "../x",
+            "C:/x",
+            "assets/.hidden",
+            "assets/한글.png",
+            "EventStudio.exe",
+        ] {
             assert!(!safe_name(bad), "{bad}");
         }
         let dir = scratch("names");

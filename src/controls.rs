@@ -56,7 +56,9 @@ pub(super) struct Item {
 
 pub(super) fn items(st: State, utility: bool) -> Vec<Item> {
     let mut v = vec![
-        Item { cmd: Cmd::Reset, icon: Icon::Reset, label: t("리셋"), tip: t("처음 시간으로 되돌리기 (R)"), enabled: st.started, primary: false },
+        Item {
+            cmd: Cmd::Reset, icon: Icon::Reset, label: t("리셋"), tip: t("처음 시간으로 되돌리기 (R)"), enabled: st.started, primary: false
+        },
         Item {
             cmd: Cmd::Play,
             icon: Icon::Play,
@@ -93,18 +95,10 @@ pub(super) fn bar(ui: &Ui, salt: &str, bounds: Rect, anchor: Pos2, style: Style,
     let widths = |labels: bool| -> Vec<f32> {
         items
             .iter()
-            .map(|it| {
-                if labels && !it.label.is_empty() {
-                    style.button * 0.7 + style.icon + 6.0 + text_w(it.label)
-                } else {
-                    style.button
-                }
-            })
+            .map(|it| if labels && !it.label.is_empty() { style.button * 0.7 + style.icon + 6.0 + text_w(it.label) } else { style.button })
             .collect()
     };
-    let total = |w: &[f32]| {
-        PAD * 2.0 + w.iter().sum::<f32>() + GAP * (w.len() as f32 - 1.0) + if style.utility { SEP } else { 0.0 }
-    };
+    let total = |w: &[f32]| PAD * 2.0 + w.iter().sum::<f32>() + GAP * (w.len() as f32 - 1.0) + if style.utility { SEP } else { 0.0 };
     let room = (bounds.width() - 8.0).max(40.0);
     let mut labels = true;
     let mut w = widths(true);
@@ -207,8 +201,12 @@ pub(super) fn icon(p: &Painter, icon: Icon, c: Pos2, size: f32, color: Color32) 
         Icon::Gear => {
             for t in 0..8 {
                 let a = t as f32 * std::f32::consts::TAU / 8.0;
-                let pts: Vec<Pos2> =
-                    (0..=4).map(|i| { let b = a - 0.2 + 0.1 * i as f32; at(12.0 + 7.5 * b.cos(), 12.0 + 7.5 * b.sin()) }).collect();
+                let pts: Vec<Pos2> = (0..=4)
+                    .map(|i| {
+                        let b = a - 0.2 + 0.1 * i as f32;
+                        at(12.0 + 7.5 * b.cos(), 12.0 + 7.5 * b.sin())
+                    })
+                    .collect();
                 p.add(Shape::line(pts, Stroke::new(3.0 * u, color)));
             }
             p.circle_stroke(c, 4.0 * u, stroke);

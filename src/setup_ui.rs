@@ -122,7 +122,13 @@ impl SetupWindow {
     /// The step the window is waiting to do.
     fn work(&mut self) {
         if let Some((pack, places)) = &self.install {
-            let o = Options { dir: self.dir.clone(), desktop: self.desktop, start_menu: self.start_menu, replace_settings: self.replace_settings, language: self.language };
+            let o = Options {
+                dir: self.dir.clone(),
+                desktop: self.desktop,
+                start_menu: self.start_menu,
+                replace_settings: self.replace_settings,
+                language: self.language,
+            };
             match setup::install(pack, places, &o) {
                 Ok(done) => self.page = Page::Installed(done),
                 Err(e) => (self.page, self.error) = (Page::Ready, Some(e)),
@@ -136,7 +142,11 @@ impl SetupWindow {
     }
 
     fn title(&self) -> &'static str {
-        if self.removing() { t("Event Studio 제거") } else { t("Event Studio 설치") }
+        if self.removing() {
+            t("Event Studio 제거")
+        } else {
+            t("Event Studio 설치")
+        }
     }
 
     /// Switches the window to another language: its texts, its fonts and its title.
@@ -259,7 +269,14 @@ impl SetupWindow {
         if found.settings {
             if self.carried.is_some() {
                 ui.checkbox(&mut self.replace_settings, t("설치 파일에 담긴 설정으로 바꾸기"));
-                Self::note(ui, if self.replace_settings { t("지금 설정과 이미지는 설치 폴더의 previous-settings 폴더에 보관합니다.") } else { t("끄면 이 컴퓨터에 저장된 설정과 이미지를 그대로 씁니다.") });
+                Self::note(
+                    ui,
+                    if self.replace_settings {
+                        t("지금 설정과 이미지는 설치 폴더의 previous-settings 폴더에 보관합니다.")
+                    } else {
+                        t("끄면 이 컴퓨터에 저장된 설정과 이미지를 그대로 씁니다.")
+                    },
+                );
             } else {
                 Self::note(ui, t("이 컴퓨터에 저장된 설정과 이미지는 그대로 둡니다."));
             }
@@ -307,7 +324,14 @@ impl SetupWindow {
         Self::folder_box(ui, &self.dir, None);
         ui.add_space(8.0);
         ui.checkbox(&mut self.remove_data, t("내 설정과 이미지도 함께 지우기"));
-        Self::note(ui, if self.remove_data { t("브랜드 · 행사 설정, 넣어 둔 로고 · 배경 · 알림음이 지워집니다. 되돌릴 수 없습니다.") } else { t("지우지 않으면 설치 폴더에 남아, 다시 설치했을 때 그대로 쓸 수 있습니다.") });
+        Self::note(
+            ui,
+            if self.remove_data {
+                t("브랜드 · 행사 설정, 넣어 둔 로고 · 배경 · 알림음이 지워집니다. 되돌릴 수 없습니다.")
+            } else {
+                t("지우지 않으면 설치 폴더에 남아, 다시 설치했을 때 그대로 쓸 수 있습니다.")
+            },
+        );
     }
 
     fn removed_page(ui: &mut Ui, done: &Removed) {
@@ -333,39 +357,39 @@ impl SetupWindow {
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.spacing_mut().interact_size.y = 26.0;
             ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            // The pages borrow their outcome while they draw, so it is taken out for the moment.
-            match std::mem::replace(&mut self.page, Page::Ready) {
-                Page::Ready => {
-                    if self.removing() {
-                        self.remove_page(ui);
-                    } else {
-                        self.install_page(ui);
+                // The pages borrow their outcome while they draw, so it is taken out for the moment.
+                match std::mem::replace(&mut self.page, Page::Ready) {
+                    Page::Ready => {
+                        if self.removing() {
+                            self.remove_page(ui);
+                        } else {
+                            self.install_page(ui);
+                        }
+                    }
+                    Page::Working(since) => {
+                        ui.add_space(60.0);
+                        ui.vertical_centered(|ui| {
+                            ui.add(Spinner::new().size(28.0).color(ACCENT));
+                            ui.add_space(8.0);
+                            ui.label(if self.removing() { t("제거중") } else { t("설치중") });
+                            Self::note(ui, t("잠시 기다려 주세요."));
+                        });
+                        self.page = Page::Working(since);
+                    }
+                    Page::Installed(done) => {
+                        self.installed_page(ui, &done);
+                        self.page = Page::Installed(done);
+                    }
+                    Page::Removed(done) => {
+                        Self::removed_page(ui, &done);
+                        self.page = Page::Removed(done);
+                    }
+                    Page::Problem(text) => {
+                        ui.label(RichText::new(t("진행할 수 없습니다")).size(20.0).strong().color(END));
+                        ui.label(RichText::new(&text).color(WHITE));
+                        self.page = Page::Problem(text);
                     }
                 }
-                Page::Working(since) => {
-                    ui.add_space(60.0);
-                    ui.vertical_centered(|ui| {
-                        ui.add(Spinner::new().size(28.0).color(ACCENT));
-                        ui.add_space(8.0);
-                        ui.label(if self.removing() { t("제거중") } else { t("설치중") });
-                        Self::note(ui, t("잠시 기다려 주세요."));
-                    });
-                    self.page = Page::Working(since);
-                }
-                Page::Installed(done) => {
-                    self.installed_page(ui, &done);
-                    self.page = Page::Installed(done);
-                }
-                Page::Removed(done) => {
-                    Self::removed_page(ui, &done);
-                    self.page = Page::Removed(done);
-                }
-                Page::Problem(text) => {
-                    ui.label(RichText::new(t("진행할 수 없습니다")).size(20.0).strong().color(END));
-                    ui.label(RichText::new(&text).color(WHITE));
-                    self.page = Page::Problem(text);
-                }
-            }
             });
         });
     }
@@ -436,7 +460,12 @@ pub fn run(job: Job, shot: Option<PathBuf>, demo: Option<String>) -> eframe::Res
     };
     lang::set(language);
     let title = if matches!(job, Job::Uninstall { .. }) { t("Event Studio 제거") } else { t("Event Studio 설치") };
-    let viewport = ViewportBuilder::default().with_title(title).with_inner_size(SIZE).with_resizable(false).with_maximize_button(false).with_icon(studio::window_icon());
+    let viewport = ViewportBuilder::default()
+        .with_title(title)
+        .with_inner_size(SIZE)
+        .with_resizable(false)
+        .with_maximize_button(false)
+        .with_icon(studio::window_icon());
     // A check's picture is taken without taking the keyboard from whoever is at the computer.
     let viewport = if shot.is_some() { viewport.with_active(false) } else { viewport };
     // `--demo hidden`: beyond the edge of the screen, so nothing flashes up in front of the person.

@@ -49,12 +49,8 @@ mod imp {
     use windows_sys::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
     };
-    use windows_sys::Win32::System::Registry::{
-        RegDeleteKeyW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_DWORD, REG_SZ, RRF_RT_REG_SZ,
-    };
-    use windows_sys::Win32::UI::Shell::{
-        SHGetKnownFolderPath, FOLDERID_Desktop, FOLDERID_Programs, FOLDERID_UserProgramFiles, KF_FLAG_DONT_VERIFY,
-    };
+    use windows_sys::Win32::System::Registry::{RegDeleteKeyW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_DWORD, REG_SZ, RRF_RT_REG_SZ};
+    use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_Programs, FOLDERID_UserProgramFiles, SHGetKnownFolderPath, KF_FLAG_DONT_VERIFY};
 
     fn wide(s: impl AsRef<OsStr>) -> Vec<u16> {
         s.as_ref().encode_wide().chain(Some(0)).collect()

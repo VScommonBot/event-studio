@@ -12,6 +12,7 @@
 !/Cargo.toml
 !/Cargo.lock
 !/build.rs
+!/rustfmt.toml
 !/src/
 !/docs/
 !/사용안내.txt

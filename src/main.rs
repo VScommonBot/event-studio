@@ -1,15 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-mod timer;
-mod studio;
-mod win;
-mod lang;
-mod strings;
 mod icon_art;
+mod lang;
 mod pack;
-mod shell;
+mod report;
 mod setup;
 mod setup_ui;
-mod report;
+mod shell;
+mod strings;
+mod studio;
+mod timer;
+mod win;
 /// The timer, or — for a setup file and for `--uninstall` — the setup and removal windows.
 /// A start that fails, and a fault later on, are told to the person (report.rs): the released
 /// program has no console to print them to.
