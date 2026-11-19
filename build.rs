@@ -15,7 +15,7 @@ const ICON_SIZES: [u32; 6] = [16, 24, 32, 48, 64, 256];
 /// One picture of an .ico file: a 32-bit bitmap, bottom row first, with its 1-bit mask behind it.
 fn icon_picture(size: u32) -> Vec<u8> {
     let rgba = icon_rgba(size);
-    let mask_row = ((size + 31) / 32 * 4) as usize;
+    let mask_row = (size.div_ceil(32) * 4) as usize;
     let mut d = Vec::new();
     d.extend(40u32.to_le_bytes());
     d.extend((size as i32).to_le_bytes());

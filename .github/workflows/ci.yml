@@ -1,5 +1,6 @@
 # Builds and tests Event Studio on Windows and on macOS for every push to main and every pull
 # request, and keeps what was built: the Windows program, and the macOS app as a disk image.
+# The source also has to be laid out by rustfmt (rustfmt.toml) and pass clippy without warnings.
 name: CI
 
 on:
@@ -27,8 +28,10 @@ jobs:
       # The releases are built with the GNU toolchain (README); the tests run on the same one.
       - name: Rust (x86_64-pc-windows-gnu)
         run: |
-          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal --component clippy
           rustup default stable-x86_64-pc-windows-gnu
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test
       - name: Build
@@ -44,6 +47,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Layout (rustfmt)
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test
       - name: App and disk image (Apple Silicon + Intel)

@@ -31,12 +31,7 @@ impl PxRect {
 
 /// The work-area top-right corner, `margin` inside (placement.js `topRight`).
 pub fn top_right(area: PxRect, w: i32, h: i32, margin: i32) -> PxRect {
-    PxRect {
-        x: area.x.max(area.x + area.w - w - margin),
-        y: area.y + margin.min((area.h - h).max(0)),
-        w,
-        h,
-    }
+    PxRect { x: area.x.max(area.x + area.w - w - margin), y: area.y + margin.min((area.h - h).max(0)), w, h }
 }
 
 /// Hotkey ids sent by the global hotkey threads.
@@ -104,18 +99,15 @@ mod imp {
     use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
     use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
     use windows_sys::Win32::Graphics::Gdi::{
-        CombineRgn, CreateEllipticRgn, CreateRectRgn, DeleteObject, GetMonitorInfoW, MonitorFromPoint, SetWindowRgn,
-        MONITORINFO, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY, RGN_OR,
+        CombineRgn, CreateEllipticRgn, CreateRectRgn, DeleteObject, GetMonitorInfoW, MonitorFromPoint, SetWindowRgn, MONITORINFO,
+        MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY, RGN_OR,
     };
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, RegisterHotKey, UnregisterHotKey, MOD_NOREPEAT, VK_LBUTTON,
-    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, RegisterHotKey, UnregisterHotKey, MOD_NOREPEAT, VK_LBUTTON};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetCursorPos, GetMessageW, GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindowVisible, PeekMessageW,
-        PostThreadMessageW, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_TOPMOST, MSG, PM_NOREMOVE,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA, WM_HOTKEY,
-        WM_QUIT, WM_USER, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        GetCursorPos, GetMessageW, GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindowVisible, PeekMessageW, PostThreadMessageW, SetWindowLongPtrW,
+        SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_TOPMOST, MSG, PM_NOREMOVE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+        SWP_NOZORDER, SW_HIDE, SW_SHOWNA, WM_HOTKEY, WM_QUIT, WM_USER, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
 
     fn hwnd(h: isize) -> HWND {
@@ -124,8 +116,7 @@ mod imp {
 
     pub fn window_rect(h: isize) -> Option<PxRect> {
         let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
-        (unsafe { GetWindowRect(hwnd(h), &mut r) } != 0)
-            .then(|| PxRect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top })
+        (unsafe { GetWindowRect(hwnd(h), &mut r) } != 0).then(|| PxRect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top })
     }
 
     pub fn set_rect(h: isize, r: PxRect) {

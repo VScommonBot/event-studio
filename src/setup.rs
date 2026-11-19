@@ -38,7 +38,8 @@ const LINK_APP: &str = "Event Studio.lnk";
 /// The Start-menu shortcuts to the guide and to the removal, named in the language of the
 /// setup, in `Lang::ALL` order. A removal looks for all of them.
 const LINK_GUIDES: [&str; 4] = ["사용안내.lnk", "Guide.lnk", "使用说明.lnk", "使い方.lnk"];
-const LINK_REMOVES: [&str; 4] = ["Event Studio 제거.lnk", "Uninstall Event Studio.lnk", "卸载 Event Studio.lnk", "Event Studio のアンインストール.lnk"];
+const LINK_REMOVES: [&str; 4] =
+    ["Event Studio 제거.lnk", "Uninstall Event Studio.lnk", "卸载 Event Studio.lnk", "Event Studio のアンインストール.lnk"];
 
 /// A program copied in but not yet put in place.
 const FRESH_NAME: &str = "EventStudio.exe.new";
@@ -63,7 +64,8 @@ const MAX_DIR_CHARS: usize = 200;
 /// Written into the install folder: only a folder that has it is ever removed from, so a copy
 /// used without installing (the program and its settings in any folder) cannot be "removed" by mistake.
 const MARKER_NAME: &str = "install-info.txt";
-const MARKER: &str = "Event Studio 설치 폴더입니다. 설치 프로그램이 만든 표시 파일이니 지우지 마세요.\r\n제거: Windows 설정 > 앱 > 설치된 앱 > Event Studio\r\n";
+const MARKER: &str =
+    "Event Studio 설치 폴더입니다. 설치 프로그램이 만든 표시 파일이니 지우지 마세요.\r\n제거: Windows 설정 > 앱 > 설치된 앱 > Event Studio\r\n";
 /// How long a removal without a window waits for the program that asked for it to end.
 pub const SILENT_PATIENCE: Duration = Duration::from_secs(5);
 /// In the removal window the asking program ended long before the person pressed the button.
@@ -76,7 +78,8 @@ const ACCESS_DENIED: i32 = 5;
 const TRIES: u32 = 10;
 const TRY_PAUSE: Duration = Duration::from_millis(100);
 
-pub const RUNNING: &str = "Event Studio가 실행 중입니다. 타이머를 끝낸 뒤 다시 눌러 주세요.\n(투명 타이머는 마우스를 올리면 나오는 X 버튼으로 끝냅니다)";
+pub const RUNNING: &str =
+    "Event Studio가 실행 중입니다. 타이머를 끝낸 뒤 다시 눌러 주세요.\n(투명 타이머는 마우스를 올리면 나오는 X 버튼으로 끝냅니다)";
 
 /// Where the app-list entry is kept.
 #[derive(Clone, Debug)]
@@ -421,7 +424,10 @@ pub fn uninstall(dir: &Path, places: &Places, remove_data: bool, patience: Durat
     let exe = dir.join(EXE_NAME);
     let marker = dir.join(MARKER_NAME);
     if !marker.is_file() {
-        return Err(tf!("이 폴더에는 설치 프로그램으로 설치한 Event Studio가 없습니다.\n{0}\n(설치 없이 쓰는 프로그램은 폴더를 직접 지우면 됩니다)", dir.display()));
+        return Err(tf!(
+            "이 폴더에는 설치 프로그램으로 설치한 Event Studio가 없습니다.\n{0}\n(설치 없이 쓰는 프로그램은 폴더를 직접 지우면 됩니다)",
+            dir.display()
+        ));
     }
     // The installed program that asked for this needs a moment to end.
     let asked = Instant::now();
@@ -592,7 +598,8 @@ pub enum Start {
     /// The timer itself.
     App,
     Exit(i32),
-    Window(Job),
+    /// (Boxed: a job is far larger than the other two.)
+    Window(Box<Job>),
 }
 
 /// Decides what this start is: the timer, a setup or removal window, or a job done without a
@@ -621,9 +628,13 @@ pub fn start(args: &Args) -> Start {
             };
             let _ = std::fs::write(path, text);
         }
-        if outcome.is_ok() { 0 } else { 1 }
+        if outcome.is_ok() {
+            0
+        } else {
+            1
+        }
     };
-    let fail = |e: String| if silent { Start::Exit(report(&Err(e))) } else { Start::Window(Job::Problem(e, lang::current())) };
+    let fail = |e: String| if silent { Start::Exit(report(&Err(e))) } else { Start::Window(Box::new(Job::Problem(e, lang::current()))) };
     let places = || match args.value("--sandbox") {
         Some(dir) => Ok(Places::sandbox(Path::new(dir))),
         None => Places::real(),
@@ -659,7 +670,7 @@ pub fn start(args: &Args) -> Start {
             let done = uninstall(Path::new(dir), &places, args.flag("--remove-data"), SILENT_PATIENCE);
             return Start::Exit(report(&done.map(|r| format!("data_kept={}\nleft={}", r.data_kept, r.left.len()))));
         }
-        return Start::Window(Job::Uninstall { dir: PathBuf::from(dir), places, language });
+        return Start::Window(Box::new(Job::Uninstall { dir: PathBuf::from(dir), places, language }));
     }
     let pack = match Pack::open(&me) {
         Ok(Some(pack)) => pack,
@@ -689,7 +700,7 @@ pub fn start(args: &Args) -> Start {
         let done = install(&pack, &places, &o);
         return Start::Exit(report(&done.map(|i| format!("{}\nsettings={:?}", i.exe.display(), i.settings))));
     }
-    Start::Window(Job::Install { pack, places, language })
+    Start::Window(Box::new(Job::Install { pack, places, language }))
 }
 
 #[cfg(all(test, windows))]
@@ -717,7 +728,9 @@ mod tests {
             Bench { places: Places::sandbox(&root.join("box")), root, program }
         }
         fn settings(brand: &str) -> String {
-            format!(r#"{{"brand":"{brand}","logo":"assets/brand-logo.png","logo2":"","background":"assets/missing.png","sound_file":"assets\\alert.mp3"}}"#)
+            format!(
+                r#"{{"brand":"{brand}","logo":"assets/brand-logo.png","logo2":"","background":"assets/missing.png","sound_file":"assets\\alert.mp3"}}"#
+            )
         }
         /// A setup file carrying settings with this brand, or none.
         fn setup(&self, brand: Option<&str>) -> Pack {
@@ -817,7 +830,8 @@ mod tests {
         // Installed again in English: the shortcuts change their names, the saved language stays.
         let english = Options { language: Lang::En, ..bench.options() };
         install(&bench.setup(None), &bench.places, &english).unwrap();
-        let names: std::collections::BTreeSet<String> = std::fs::read_dir(&menu).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        let names: std::collections::BTreeSet<String> =
+            std::fs::read_dir(&menu).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert_eq!(names.into_iter().collect::<Vec<_>>(), ["Event Studio.lnk", "Guide.lnk", "Uninstall Event Studio.lnk"]);
         assert_eq!(shell::link_target(&menu.join("Guide.lnk")).unwrap(), dir.join("Guide.txt"));
         assert_eq!(saved_language(&dir), Some(Lang::Ja));

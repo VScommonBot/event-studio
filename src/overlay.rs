@@ -101,13 +101,13 @@ impl Solid {
     }
 
     /// In window pixels, a little larger so the halo is never cut off by the window region.
-    pub(super) fn to_px(&self, ppp: f32) -> win::HitShape {
+    pub(super) fn to_px(self, ppp: f32) -> win::HitShape {
         let px = |r: Rect| {
             let r = r.expand(3.0);
             let (x, y) = ((r.min.x * ppp).floor() as i32, (r.min.y * ppp).floor() as i32);
             win::PxRect { x, y, w: (r.max.x * ppp).ceil() as i32 - x, h: (r.max.y * ppp).ceil() as i32 - y }
         };
-        match *self {
+        match self {
             Solid::Rect(r) => win::HitShape::Rect(px(r)),
             Solid::Disc(c, r) => win::HitShape::Ellipse(px(Rect::from_center_size(c, Vec2::splat(r * 2.0)))),
         }
@@ -141,10 +141,11 @@ fn titles(p: &Painter, rect: Rect, s: &Settings, textures: &Pictures, solid: &mu
     const PAD: f32 = 5.0;
     const LOGO: f32 = 22.0;
     let sizes = [11.5, 17.0, 10.5];
-    let lines: Vec<(&str, f32, Color32)> = [(s.brand.trim(), sizes[0], s.accent()), (s.event.trim(), sizes[1], WHITE), (s.subtitle.trim(), sizes[2], MUTED)]
-        .into_iter()
-        .filter(|line| !line.0.is_empty())
-        .collect();
+    let lines: Vec<(&str, f32, Color32)> =
+        [(s.brand.trim(), sizes[0], s.accent()), (s.event.trim(), sizes[1], WHITE), (s.subtitle.trim(), sizes[2], MUTED)]
+            .into_iter()
+            .filter(|line| !line.0.is_empty())
+            .collect();
     // What is behind the floating timer is whatever slide is up, so 자동 keeps a logo's own colours
     // here; 흰색 makes it white, with the same dark halo as the text.
     let logos: Vec<(&TextureHandle, bool)> = [&s.logo, &s.logo2].into_iter().filter_map(|key| textures.logo(key, s.logo_tone, None)).collect();
