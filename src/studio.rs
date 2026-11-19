@@ -504,23 +504,24 @@ const WIDE_FACES:&[Face]=&[("msyh.ttc",Nth(1)),("msyh.ttc",Nth(0)),("msyh.ttf",N
 #[cfg(not(target_os="macos"))]
 const DIGIT_FACES:&[Face]=&[("segoeuib.ttf",Nth(0))];
 /// macOS' own fonts for each language, regular and bold: Apple SD Gothic Neo for Korean, Helvetica
-/// for English, PingFang SC for Chinese (STHeiti or Hiragino Sans GB where a version of macOS keeps
-/// PingFang elsewhere) and Hiragino Sans for Japanese. Their collections hold many weights, and
-/// PingFang the forms of four regions, so a face is found by its name and weight.
+/// for English, Hiragino Sans for Japanese, and for Chinese PingFang SC where macOS keeps it with
+/// the other fonts (older versions do; macOS 26 does not), else Hiragino Sans GB, which every
+/// version has. Their collections hold many weights, and some the forms of several regions, so a
+/// face is found by its name and weight.
 #[cfg(target_os="macos")]
 fn language_faces(language:Lang)->(&'static [Face],&'static [Face]){use Pick::Like;match language{
  Lang::Ko=>(KOREAN_FACES.0,KOREAN_FACES.1),
  Lang::En=>(&[("/System/Library/Fonts/Helvetica.ttc",Like("Helvetica",400)),("/System/Library/Fonts/Supplemental/Arial.ttf",Nth(0))],&[("/System/Library/Fonts/Helvetica.ttc",Like("Helvetica",700)),("/System/Library/Fonts/Supplemental/Arial Bold.ttf",Nth(0))]),
- Lang::Zh=>(&[("/System/Library/Fonts/PingFang.ttc",Like("PingFangSC-",400)),("/System/Library/Fonts/STHeiti Medium.ttc",Like("STHeitiSC-",400)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("",300)),("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0))],
-  &[("/System/Library/Fonts/PingFang.ttc",Like("PingFangSC-",600)),("/System/Library/Fonts/STHeiti Medium.ttc",Like("STHeitiSC-",700)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("",600))]),
- Lang::Ja=>(&[("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",Like("HiraginoSans-",300)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("",300)),("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0))],
-  &[("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",Like("HiraginoSans-",600)),("/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc",Like("HiraginoSans-",700)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("",600))]),
+ Lang::Zh=>(&[("/System/Library/Fonts/PingFang.ttc",Like("PingFangSC-",400)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",300)),("/System/Library/Fonts/STHeiti Medium.ttc",Like("STHeitiSC-",400)),("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0))],
+  &[("/System/Library/Fonts/PingFang.ttc",Like("PingFangSC-",600)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",600)),("/System/Library/Fonts/STHeiti Medium.ttc",Like("STHeitiSC-",400))]),
+ Lang::Ja=>(&[("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",Like("HiraginoSans-",300)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",300)),("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0))],
+  &[("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",Like("HiraginoSans-",600)),("/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc",Like("HiraginoSans-",700)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Like("HiraginoSansGB-",600))]),
 }}
 #[cfg(target_os="macos")]
 const KOREAN_FACES:(&[Face],&[Face])=(&[("/System/Library/Fonts/AppleSDGothicNeo.ttc",Pick::Like("AppleSDGothicNeo-",400)),("/System/Library/Fonts/Supplemental/AppleGothic.ttf",Nth(0))],&[("/System/Library/Fonts/AppleSDGothicNeo.ttc",Pick::Like("AppleSDGothicNeo-",700))]);
 /// For characters none of a language's fonts has: Arial Unicode covers Korean, Chinese and Japanese.
 #[cfg(target_os="macos")]
-const WIDE_FACES:&[Face]=&[("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0)),("/System/Library/Fonts/PingFang.ttc",Pick::Like("PingFangSC-",400)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Pick::Like("",300))];
+const WIDE_FACES:&[Face]=&[("/System/Library/Fonts/Supplemental/Arial Unicode.ttf",Nth(0)),("/System/Library/Fonts/PingFang.ttc",Pick::Like("PingFangSC-",400)),("/System/Library/Fonts/Hiragino Sans GB.ttc",Pick::Like("HiraginoSansGB-",300))];
 /// Digits of the floating timer: Helvetica Bold draws them cleanly.
 #[cfg(target_os="macos")]
 const DIGIT_FACES:&[Face]=&[("/System/Library/Fonts/Helvetica.ttc",Pick::Like("Helvetica",700)),("/System/Library/Fonts/Supplemental/Arial Bold.ttf",Nth(0))];

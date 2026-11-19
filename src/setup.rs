@@ -275,13 +275,15 @@ fn delete(file: PathBuf, left: &mut Vec<PathBuf>) {
     }
 }
 
+/// (Both are compared with their parts written out in full: a folder given by its short name,
+/// `C:\PROGRA~1`, is the folder a shortcut names in full.)
 fn same_path(a: &Path, b: &Path) -> bool {
-    let tidy = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).replace('/', "\\").to_lowercase();
+    let tidy = |p: &Path| shell::long_path(p).to_string_lossy().trim_end_matches(['\\', '/']).replace('/', "\\").to_lowercase();
     tidy(a) == tidy(b)
 }
 
 fn inside(file: &Path, dir: &Path) -> bool {
-    let tidy = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    let tidy = |p: &Path| shell::long_path(p).to_string_lossy().replace('/', "\\").to_lowercase();
     tidy(file).starts_with(&format!("{}\\", tidy(dir).trim_end_matches('\\')))
 }
 
@@ -695,7 +697,8 @@ mod tests {
 
     impl Bench {
         fn new(name: &str) -> Bench {
-            let root = std::env::temp_dir().join(format!("EventStudio-setup-test-{}-{name} 한글 폴더", std::process::id()));
+            // (The temp folder may be given by its short name; shortcuts store the full one.)
+            let root = shell::long_path(&std::env::temp_dir()).join(format!("EventStudio-setup-test-{}-{name} 한글 폴더", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("source/assets")).unwrap();
             let program: Vec<u8> = (0..300_000u32).map(|i| (i * 7 % 253) as u8).collect();

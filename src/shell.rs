@@ -45,6 +45,7 @@ mod imp {
     use std::ptr::{null, null_mut};
     use windows_sys::core::{GUID, HRESULT, PCWSTR, PWSTR};
     use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
     use windows_sys::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
     };
@@ -62,6 +63,26 @@ mod imp {
     fn text(buffer: &[u16]) -> OsString {
         let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
         OsString::from_wide(&buffer[..len])
+    }
+
+    /// A path with each of its parts written out in full. Windows also knows a folder by a short
+    /// name (`C:\Users\RUNNER~1` for `C:\Users\runneradmin`), and a shortcut stores the full one:
+    /// two spellings of one folder are compared in this form. A path that is not there comes back
+    /// as it was given.
+    pub fn long_path(path: &Path) -> PathBuf {
+        let given = wide(path);
+        let mut full = vec![0u16; 1024];
+        loop {
+            let len = unsafe { GetLongPathNameW(given.as_ptr(), full.as_mut_ptr(), full.len() as u32) } as usize;
+            if len == 0 {
+                return path.to_path_buf();
+            }
+            if len < full.len() {
+                return PathBuf::from(text(&full[..len]));
+            }
+            // Too long for the buffer: `len` is the room it needs.
+            full.resize(len + 1, 0);
+        }
     }
 
     pub fn folder(which: Folder) -> Option<PathBuf> {
@@ -244,6 +265,9 @@ mod imp {
     use crate::lang::t;
     use std::path::{Path, PathBuf};
     const ONLY_WINDOWS: &str = "설치는 Windows에서만 지원합니다";
+    pub fn long_path(path: &Path) -> PathBuf {
+        path.to_path_buf()
+    }
     pub fn folder(_: Folder) -> Option<PathBuf> {
         None
     }
@@ -282,8 +306,11 @@ mod tests {
 
     #[test]
     fn shortcut_file_points_where_it_was_told() {
-        let dir = std::env::temp_dir().join(format!("EventStudio-link-test-{} 한글 폴더", std::process::id()));
+        // (The temp folder may be given by its short name; a shortcut stores the full one.)
+        let dir = long_path(&std::env::temp_dir()).join(format!("EventStudio-link-test-{} 한글 폴더", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(long_path(&dir), dir, "a full path stays as it is");
+        assert_eq!(long_path(&dir.join("없는 폴더")), dir.join("없는 폴더"), "and so does one that is not there");
         let target = dir.join("대상 프로그램.exe");
         std::fs::write(&target, b"x").unwrap();
         let at = dir.join("바로 가기.lnk");
