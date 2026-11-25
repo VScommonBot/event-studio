@@ -170,12 +170,14 @@ fn a_window_where_nothing_moves_is_not_drawn_again_by_itself() {
     app.activity = Instant::now();
     let wait = wait_of(&app);
     assert!(wait > 2.0 && wait <= CONTROLS_IDLE + 0.01, "{wait}");
-    // The audience window has hover buttons of its own.
+    // Each output screen has hover buttons of its own.
     let mut app = rested("frames-test");
-    app.audience_activity = Instant::now();
-    assert_eq!(app.next_frame_in(), None);
-    app.audience = true;
+    assert!(app.open_screen(Format::Number));
+    app.screens[0].activity = Instant::now();
     assert!(wait_of(&app) <= CONTROLS_IDLE + 0.01);
+    app.screens[0].activity = Instant::now().checked_sub(Duration::from_secs(4)).expect("the computer has been on for four seconds");
+    app.frames += SETTLE_FRAMES;
+    assert_eq!(app.next_frame_in(), None);
     // A changed setting: when it is due to be saved.
     let mut app = rested("frames-test");
     app.dirty_since = Some(Instant::now());
@@ -448,7 +450,7 @@ fn floating_timer_only_painted_parts_take_the_mouse() {
     let centre = pos2(FLOAT_SIZE.x / 2.0, FLOAT_SIZE.y / 2.0);
     let corner = pos2(6.0, 6.0);
     for mode in [Mode::Circle, Mode::Bar, Mode::Number] {
-        let solid = painted_parts(mode.clone(), 0.0);
+        let solid = painted_parts(mode, 0.0);
         assert!(solid.iter().any(|a| a.contains(centre)), "{mode:?}: the time takes the mouse");
         assert!(!solid.iter().any(|a| a.contains(corner)), "{mode:?}: an empty corner lets it through");
     }
@@ -747,7 +749,7 @@ fn the_drawn_timer_grows_as_the_header_empties() {
     };
     for mode in [Mode::Circle, Mode::Bar, Mode::Number] {
         let mut s = Settings::default();
-        s.mode = mode.clone();
+        s.mode = mode;
         assert!(!s.brand.is_empty() && !s.event.is_empty() && !s.subtitle.is_empty());
         let full = draw(&s);
         s.event.clear();
@@ -897,4 +899,174 @@ fn saved_settings_without_a_logo_colour_start_with_auto() {
     w.logo_tone = Tone::White;
     let back: Settings = serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap();
     assert_eq!(back.logo_tone, Tone::White);
+}
+// Output screens and shortcuts, driven by made-up key events (never the real keyboard).
+fn key_frame(ctx: &Context, app: &mut Studio, keys: &[shortcuts::Binding], from: Option<usize>) {
+    // Each key goes down and up again, as on a keyboard.
+    let events = [true, false]
+        .into_iter()
+        .flat_map(|pressed| {
+            keys.iter().map(move |b| Event::Key {
+                key: b.key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Modifiers { alt: b.alt, ctrl: b.ctrl, shift: b.shift, mac_cmd: b.cmd, command: b.ctrl || b.cmd },
+            })
+        })
+        .collect();
+    let _ = ctx.run(RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), events, ..Default::default() }, |ctx| {
+        app.shortcut_keys(ctx, from)
+    });
+}
+fn default_key(a: Action) -> shortcuts::Binding {
+    a.default_binding().expect("the action has a default key")
+}
+#[test]
+fn a_shortcut_pressed_in_any_window_drives_the_one_clock() {
+    let ctx = Context::default();
+    let mut app = Studio::bare(Settings::default(), fixture("shortcut-test"), None);
+    assert!(app.open_screen(Format::Number) && app.open_screen(Format::Presenter));
+    // The editor and each output screen act on the same clock: what one starts, the others show.
+    key_frame(&ctx, &mut app, &[default_key(Action::ToggleTimer)], None);
+    assert!(app.clock.running() && app.facts().running);
+    key_frame(&ctx, &mut app, &[default_key(Action::ToggleTimer)], Some(1));
+    assert!(!app.clock.running());
+    // Before the timer starts, the time is the setting: +1 minute and -10 seconds move both.
+    key_frame(&ctx, &mut app, &[default_key(Action::Reset)], Some(1));
+    let before = app.clock.duration;
+    key_frame(&ctx, &mut app, &[default_key(Action::Add1m)], Some(0));
+    key_frame(&ctx, &mut app, &[default_key(Action::Sub10s)], None);
+    assert_eq!((app.clock.duration, app.s.duration), (before + 50.0, before + 50.0));
+    // The display mode is one setting for the whole program.
+    key_frame(&ctx, &mut app, &[default_key(Action::ModeBar)], Some(1));
+    assert_eq!(app.s.mode, Mode::Bar);
+    key_frame(&ctx, &mut app, &[default_key(Action::ModeNumber)], None);
+    assert_eq!(app.s.mode, Mode::Number);
+    // The editor asks before it resets a timer that has run; an output screen does not.
+    key_frame(&ctx, &mut app, &[default_key(Action::ToggleTimer)], None);
+    app.clock.accumulated = 30.0;
+    key_frame(&ctx, &mut app, &[default_key(Action::Reset)], None);
+    assert!(app.confirm_reset && app.clock.running());
+    key_frame(&ctx, &mut app, &[default_key(Action::Reset)], Some(0));
+    assert!(!app.confirm_reset && !app.clock.running() && app.clock.elapsed(app.now()) == 0.0);
+}
+#[test]
+fn shortcuts_open_and_close_screens_and_stop_at_the_limit() {
+    let ctx = Context::default();
+    let mut app = Studio::bare(Settings::default(), fixture("shortcut-test"), None);
+    app.new_format = Format::Mini;
+    for n in 1..=MAX_SCREENS {
+        key_frame(&ctx, &mut app, &[default_key(Action::OpenScreen)], None);
+        assert_eq!(app.screens.len(), n);
+    }
+    assert!(app.screens.iter().all(|s| s.format == Format::Mini));
+    assert_eq!(app.screens.iter().map(|s| s.id).collect::<Vec<_>>(), (1..=MAX_SCREENS as u32).collect::<Vec<_>>());
+    key_frame(&ctx, &mut app, &[default_key(Action::OpenScreen)], None);
+    assert_eq!(app.screens.len(), MAX_SCREENS, "no more than the limit");
+    assert_eq!(app.status, tf!("출력 화면은 {0}개까지 열 수 있습니다", MAX_SCREENS));
+    // A closed screen's number is given to the next one that opens.
+    app.screens[2].closed = true;
+    app.screens.retain(|s| !s.closed);
+    assert!(app.open_screen(Format::Bar));
+    assert_eq!(app.screens.last().map(|s| (s.id, s.format)), Some((3, Format::Bar)));
+    // Close all: every screen is marked, and the windows go at the next frame. Closing has no default key.
+    assert_eq!(Action::CloseScreens.default_binding(), None);
+    app.run_action(Action::CloseScreens, &ctx, None);
+    assert!(app.screens.iter().all(|s| s.closed));
+    ctx.set_embed_viewports(true);
+    let _ = ctx.run(RawInput::default(), |ctx| app.screen_windows(ctx));
+    assert!(app.screens.is_empty());
+}
+#[test]
+fn a_new_screen_shows_the_current_state_at_once() {
+    let ctx = Context::default();
+    ctx.set_embed_viewports(true);
+    install_fonts(&ctx, Lang::Ko, false);
+    let mut app = Studio::bare(Settings::default(), fixture("shortcut-test"), None);
+    app.s.mode = Mode::Bar;
+    app.clock.toggle(app.now());
+    app.clock.adjust(-60.0, app.now());
+    // Opened late, in the first frame it is drawn the screen already has what the editor has: no copying, no waiting.
+    assert!(app.open_screen(Format::Follow));
+    let _ = ctx.run(RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), ..Default::default() }, |ctx| {
+        app.screen_windows(ctx)
+    });
+    let v = app.clock.view(app.now(), app.s.warning, app.s.count_up, app.s.overtime, app.s.seconds_only);
+    assert_eq!(app.screens[0].format.look(app.s.mode), screens::Look::Stage(Mode::Bar));
+    assert!(app.facts().running && app.facts().started && v.phase != Phase::Ready);
+    assert_eq!(app.clock.duration, app.s.duration - 60.0);
+}
+#[test]
+fn shortcuts_can_be_switched_off_and_do_not_fire_while_typing() {
+    let ctx = Context::default();
+    let mut app = Studio::bare(Settings::default(), fixture("shortcut-test"), None);
+    let space = default_key(Action::ToggleTimer);
+    app.s.shortcuts.enabled = false;
+    key_frame(&ctx, &mut app, &[space], None);
+    assert!(!app.clock.running(), "all off");
+    app.s.shortcuts.enabled = true;
+    // A text box has the keyboard: the key is the text box's.
+    app.typing = true;
+    key_frame(&ctx, &mut app, &[space, default_key(Action::Add1m)], None);
+    assert!(!app.clock.running() && app.clock.duration == app.s.duration);
+    // An output screen has no text box, so what the editor was typing does not matter there.
+    assert!(app.open_screen(Format::Number));
+    key_frame(&ctx, &mut app, &[space], Some(0));
+    assert!(app.clock.running());
+    // A function key types nothing: it works even while typing.
+    let f6 = shortcuts::Binding::new(Key::F6);
+    assert_eq!(app.s.shortcuts.assign(Action::Reset, f6), Assign::Set);
+    key_frame(&ctx, &mut app, &[f6], None);
+    assert!(app.confirm_reset || !app.clock.running());
+}
+#[test]
+fn a_changed_key_works_and_the_old_one_does_not_and_the_hints_follow() {
+    let ctx = Context::default();
+    let mut app = Studio::bare(Settings::default(), fixture("shortcut-test"), None);
+    let combo = shortcuts::Binding { ctrl: true, shift: true, ..shortcuts::Binding::new(Key::T) };
+    assert_eq!(app.s.shortcuts.assign(Action::ToggleTimer, combo), Assign::Set);
+    key_frame(&ctx, &mut app, &[default_key(Action::ToggleTimer)], None);
+    assert!(!app.clock.running(), "the old key is free");
+    key_frame(&ctx, &mut app, &[combo], None);
+    assert!(app.clock.running(), "the new key starts it");
+    // Without Shift it is another key: nothing happens.
+    key_frame(&ctx, &mut app, &[shortcuts::Binding { ctrl: true, ..shortcuts::Binding::new(Key::T) }], None);
+    assert!(app.clock.running());
+    // The hints on the buttons and in the tips show the key that is set, or none when they are off.
+    app.refresh_hints();
+    assert_eq!((app.hints.toggle.as_str(), app.hints.reset.as_str()), ("Ctrl+Shift+T", "R"));
+    app.s.shortcuts.enabled = false;
+    app.refresh_hints();
+    assert_eq!((app.hints.toggle.as_str(), app.hints.reset.as_str()), ("", ""));
+    // Giving a key that another action has takes it from that action.
+    app.s.shortcuts.enabled = true;
+    assert_eq!(app.s.shortcuts.assign(Action::Add1m, shortcuts::Binding::new(Key::R)), Assign::Replaced(Action::Reset));
+    assert_eq!(app.s.shortcuts.binding(Action::Reset), None);
+}
+#[test]
+fn screens_and_shortcuts_are_saved_with_the_settings() {
+    let mut s = Settings::default();
+    s.screens = vec![Format::Bar, Format::Presenter, Format::Mini];
+    s.restore_screens = true;
+    s.shortcuts.assign(Action::Fullscreen, shortcuts::Binding::new(Key::F));
+    s.shortcuts.clear(Action::OpenScreen);
+    let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    assert_eq!(back.screens, s.screens);
+    assert!(back.restore_screens);
+    assert_eq!(back.shortcuts.binding(Action::Fullscreen), Some(shortcuts::Binding::new(Key::F)));
+    assert_eq!(back.shortcuts.binding(Action::OpenScreen), None);
+    assert_eq!(back.shortcuts.binding(Action::Reset), Some(shortcuts::Binding::new(Key::R)));
+    // Settings from before have no screens and all shortcuts on with their default keys.
+    let old: Settings = serde_json::from_str(r#"{"event":"x"}"#).unwrap();
+    assert!(old.screens.is_empty() && !old.restore_screens && old.shortcuts.enabled && old.shortcuts.custom.is_empty());
+    // Too many saved screens are cut to the limit; an odd shortcut entry is dropped.
+    let mut many: Settings = serde_json::from_str(&format!(
+        r#"{{"screens":[{}],"shortcuts":{{"custom":{{"toggle":"Ctrl+Alt+Nope","nonsense":"R","reset":"Cmd+Q"}}}}}}"#,
+        [r#""Bar""#; MAX_SCREENS + 4].join(",")
+    ))
+    .unwrap();
+    many.normalize();
+    assert_eq!(many.screens.len(), MAX_SCREENS);
+    assert!(many.shortcuts.custom.is_empty(), "{:?}", many.shortcuts.custom);
 }

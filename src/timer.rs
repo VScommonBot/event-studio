@@ -4,6 +4,8 @@ pub const DEFAULT_SECONDS: f64 = 300.0;
 pub const DEFAULT_WARNING: f64 = 60.0;
 pub const MAX_SECONDS: f64 = 359999.0;
 pub const OVERTIME_DELAY: f64 = 1.0;
+/// The quick choices for the length of a presentation, in minutes (the buttons under the time).
+pub const PRESET_MINUTES: [u32; 5] = [3, 5, 10, 15, 20];
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Phase {
     Ready,
@@ -129,6 +131,14 @@ pub struct View {
     pub fill: f32,
     pub elapsed: f64,
 }
+/// The preset length (in seconds) one step up (`step > 0`) or down from `current`: the nearest one
+/// beyond it, or the end of the list when there is none; a length between two presets goes to the
+/// one on that side.
+pub fn step_preset(current: f64, step: i32) -> f64 {
+    let secs = PRESET_MINUTES.map(|m| m as f64 * 60.0);
+    let found = if step > 0 { secs.iter().find(|s| **s > current) } else { secs.iter().rev().find(|s| **s < current) };
+    *found.unwrap_or(if step > 0 { &secs[secs.len() - 1] } else { &secs[0] })
+}
 pub fn format_seconds(n: u64) -> String {
     if n >= 3600 {
         format!("{}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60)
@@ -139,6 +149,18 @@ pub fn format_seconds(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn presets_step_up_and_down_and_stop_at_the_ends() {
+        assert_eq!(step_preset(300.0, 1), 600.0);
+        assert_eq!(step_preset(300.0, -1), 180.0);
+        assert_eq!(step_preset(180.0, -1), 180.0);
+        assert_eq!(step_preset(1200.0, 1), 1200.0);
+        // Between two presets: the one on that side.
+        assert_eq!(step_preset(400.0, 1), 600.0);
+        assert_eq!(step_preset(400.0, -1), 300.0);
+        assert_eq!(step_preset(0.0, -1), 180.0);
+        assert_eq!(step_preset(9999.0, 1), 1200.0);
+    }
     #[test]
     fn starts_at_five_minutes() {
         assert_eq!(Clock::new(DEFAULT_SECONDS).view(0.0, 60.0, false, true, false).text, "05:00");

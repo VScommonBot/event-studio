@@ -230,19 +230,19 @@ pub(super) fn paint(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, stat
         solid.push(Solid::Rect(rect));
     }
     let room = if s.overlay_scene { titles(p, rect, s, textures, &mut solid) } else { rect };
-    timer(p, room, s, v, status, &mut solid);
+    timer(p, room, s, s.mode, v, status, &mut solid);
     solid
 }
 
-/// The ring, bar or digits in `rect`.
-fn timer(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, status: &str, solid: &mut Vec<Solid>) {
+/// The ring, bar or digits in `rect`, in the display `mode` (an output screen may show another one than the settings').
+pub(super) fn timer(p: &Painter, rect: Rect, s: &Settings, mode: Mode, v: &timer::View, status: &str, solid: &mut Vec<Solid>) {
     // style.css body.overlay #stage { padding: 3vh 3vw }
     let c = rect.shrink2(rect.size() * 0.03);
     let color = phase_color(v.phase, s.accent());
     let digits = digits_color(v.phase);
     // style.css .digits.long { transform: scale(0.72) }
     let long = if v.text.chars().count() > 6 { 0.72 } else { 1.0 };
-    match s.mode {
+    match mode {
         Mode::Circle => {
             // .viz-circle: min(94cqh, 84cqw), r 92 and stroke 9 on a 200 box.
             let d = (c.height() * 0.94).min(c.width() * 0.84);

@@ -1,5 +1,5 @@
 use super::*;
-fn fit_text(p: &Painter, center: Pos2, text: &str, max: f32, size: f32, color: Color32) {
+pub(super) fn fit_text(p: &Painter, center: Pos2, text: &str, max: f32, size: f32, color: Color32) {
     let mut font = FontId::proportional(size);
     let mut g = p.layout_no_wrap(text.into(), font.clone(), color);
     if g.size().x > max {
@@ -129,6 +129,19 @@ pub(super) fn layout(rect: Rect, scale: f32, h: Header) -> Stage {
 }
 /// Paints the event stage and returns where the timer itself is (hover buttons go on it).
 pub(super) fn render(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, textures: &Pictures, qna: bool, running: bool) -> Rect {
+    render_as(p, rect, s, s.mode, v, textures, (qna, running))
+}
+/// The same stage in another display, for an output screen that shows something else than the editor's preview.
+/// (qna, running): whether the Q&A part is on, and whether the timer runs.
+pub(super) fn render_as(
+    p: &Painter,
+    rect: Rect,
+    s: &Settings,
+    mode: Mode,
+    v: &timer::View,
+    textures: &Pictures,
+    (qna, running): (bool, bool),
+) -> Rect {
     let p = p.with_clip_rect(rect);
     let a = s.accent();
     let scale = (rect.width() / 850.0).min(rect.height() / 590.0).max(0.35);
@@ -218,7 +231,7 @@ pub(super) fn render(p: &Painter, rect: Rect, s: &Settings, v: &timer::View, tex
     } else {
         "TIME REMAINING"
     };
-    let timer_rect = match s.mode {
+    let timer_rect = match mode {
         Mode::Circle => {
             let center = on_pixels(&p, center);
             let radius = RING_RADIUS * k;
