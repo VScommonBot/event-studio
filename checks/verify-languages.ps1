@@ -30,6 +30,8 @@ foreach ($lang in $Languages) {
     @('editor-narrow', $Exe, '--demo hidden,narrow'),
     @('tab-time', $Exe, '--demo hidden,timetab'),
     @('tab-floating', $Exe, '--demo hidden,floattab'),
+    @('tab-screens', $Exe, '--demo hidden,screentab'),
+    @('tab-shortcuts', $Exe, '--demo hidden,keytab'),
     @('bar-warning', $Exe, '--demo hidden,bar,warning,hover'),
     @('number-over', $Exe, '--demo hidden,number,over'),
     @('make-setup', $Exe, '--demo hidden,packer'),

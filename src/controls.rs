@@ -15,12 +15,23 @@ pub(super) enum Cmd {
     Quit,
 }
 
+/// The keys that work the buttons, as written after a button's tip: ("R"), ("Space"). Empty for a button whose key is taken away.
+#[derive(Default)]
+pub(super) struct Hints {
+    pub reset: String,
+    pub toggle: String,
+}
+/// No keys to show.
+#[cfg(test)]
+pub(super) static NO_HINTS: Hints = Hints { reset: String::new(), toggle: String::new() };
+
 /// What the timer is doing, which decides what each button offers.
 #[derive(Clone, Copy)]
-pub(super) struct State {
+pub(super) struct State<'a> {
     pub running: bool,
     pub started: bool,
     pub accent: Color32,
+    pub hints: &'a Hints,
 }
 
 /// One bar's size: the stage (preview, full screen, audience window) or the floating timer.
@@ -48,30 +59,43 @@ pub(super) struct Item {
     pub cmd: Cmd,
     pub icon: Icon,
     pub label: &'static str,
-    pub tip: &'static str,
+    pub tip: String,
     pub enabled: bool,
     /// The likely next press, filled with the brand colour.
     pub primary: bool,
 }
 
 pub(super) fn items(st: State, utility: bool) -> Vec<Item> {
+    let tip = |tip: &'static str, key: &str| if key.is_empty() { tip.to_string() } else { format!("{tip} ({key})") };
     let mut v = vec![
         Item {
-            cmd: Cmd::Reset, icon: Icon::Reset, label: t("리셋"), tip: t("처음 시간으로 되돌리기 (R)"), enabled: st.started, primary: false
+            cmd: Cmd::Reset,
+            icon: Icon::Reset,
+            label: t("리셋"),
+            tip: tip(t("처음 시간으로 되돌리기"), &st.hints.reset),
+            enabled: st.started,
+            primary: false,
         },
         Item {
             cmd: Cmd::Play,
             icon: Icon::Play,
             label: if st.started { t("재시작") } else { t("시작") },
-            tip: t("시작 / 이어서 진행 (Space)"),
+            tip: tip(t("시작 / 이어서 진행"), &st.hints.toggle),
             enabled: !st.running,
             primary: !st.running,
         },
-        Item { cmd: Cmd::Pause, icon: Icon::Pause, label: t("멈춤"), tip: t("잠시 멈춤 (Space)"), enabled: st.running, primary: st.running },
+        Item {
+            cmd: Cmd::Pause,
+            icon: Icon::Pause,
+            label: t("멈춤"),
+            tip: tip(t("잠시 멈춤"), &st.hints.toggle),
+            enabled: st.running,
+            primary: st.running,
+        },
     ];
     if utility {
-        v.push(Item { cmd: Cmd::Editor, icon: Icon::Gear, label: "", tip: t("편집 화면으로"), enabled: true, primary: false });
-        v.push(Item { cmd: Cmd::Quit, icon: Icon::Close, label: "", tip: t("닫기 (앱 종료)"), enabled: true, primary: false });
+        v.push(Item { cmd: Cmd::Editor, icon: Icon::Gear, label: "", tip: t("편집 화면으로").to_string(), enabled: true, primary: false });
+        v.push(Item { cmd: Cmd::Quit, icon: Icon::Close, label: "", tip: t("닫기 (앱 종료)").to_string(), enabled: true, primary: false });
     }
     v
 }
@@ -138,7 +162,7 @@ pub(super) fn bar(ui: &Ui, salt: &str, bounds: Rect, anchor: Pos2, style: Style,
         let sense = if it.enabled { Sense::click() } else { Sense::hover() };
         let mut resp = ui.interact(hit, ui.id().with((salt, i)), sense);
         if !style.utility {
-            resp = resp.on_hover_text(it.tip);
+            resp = resp.on_hover_text(it.tip.as_str());
         }
         let ink = if !it.enabled {
             MUTED.gamma_multiply(0.45)
@@ -234,14 +258,14 @@ mod tests {
     use super::*;
     #[test]
     fn buttons_follow_the_timer() {
-        let ready = items(State { running: false, started: false, accent: WHITE }, false);
+        let ready = items(State { running: false, started: false, accent: WHITE, hints: &NO_HINTS }, false);
         assert_eq!(ready.iter().map(|i| i.label).collect::<Vec<_>>(), ["리셋", "시작", "멈춤"]);
         assert!(!ready[0].enabled && ready[1].enabled && ready[1].primary && !ready[2].enabled);
-        let running = items(State { running: true, started: true, accent: WHITE }, true);
+        let running = items(State { running: true, started: true, accent: WHITE, hints: &NO_HINTS }, true);
         assert_eq!(running[1].label, "재시작");
         assert!(running[0].enabled && !running[1].enabled && running[2].enabled && running[2].primary);
         assert_eq!(running.iter().map(|i| i.cmd).collect::<Vec<_>>(), [Cmd::Reset, Cmd::Play, Cmd::Pause, Cmd::Editor, Cmd::Quit]);
-        let paused = items(State { running: false, started: true, accent: WHITE }, false);
+        let paused = items(State { running: false, started: true, accent: WHITE, hints: &NO_HINTS }, false);
         assert!(paused[1].enabled && paused[1].primary && !paused[2].enabled && paused[0].enabled);
     }
 }

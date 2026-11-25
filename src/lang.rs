@@ -120,15 +120,30 @@ pub fn first_listed(printed: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(not(test))]
 static CURRENT: AtomicU8 = AtomicU8::new(0);
+
+// Tests run side by side: each one has the language of its own, so one that switches it does
+// not change the text another is checking.
+#[cfg(test)]
+thread_local! {
+    static CURRENT: AtomicU8 = const { AtomicU8::new(0) };
+}
 
 /// Switches the language every `t` answers in.
 pub fn set(lang: Lang) {
+    #[cfg(test)]
+    CURRENT.with(|c| c.store(lang as u8, Ordering::Relaxed));
+    #[cfg(not(test))]
     CURRENT.store(lang as u8, Ordering::Relaxed);
 }
 
 pub fn current() -> Lang {
-    Lang::ALL[CURRENT.load(Ordering::Relaxed) as usize % Lang::ALL.len()]
+    #[cfg(test)]
+    let index = CURRENT.with(|c| c.load(Ordering::Relaxed));
+    #[cfg(not(test))]
+    let index = CURRENT.load(Ordering::Relaxed);
+    Lang::ALL[index as usize % Lang::ALL.len()]
 }
 
 fn rows() -> &'static HashMap<&'static str, &'static [&'static str; 4]> {
@@ -333,6 +348,8 @@ mod tests {
             "studio.rs",
             "scene.rs",
             "overlay.rs",
+            "screens.rs",
+            "shortcuts.rs",
             "controls.rs",
             "setup.rs",
             "setup_ui.rs",

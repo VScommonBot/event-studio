@@ -4,6 +4,10 @@ mod controls;
 mod overlay;
 #[path = "scene.rs"]
 mod scene;
+#[path = "screens.rs"]
+mod screens;
+#[path = "shortcuts.rs"]
+mod shortcuts;
 #[cfg(test)]
 #[path = "studio_tests.rs"]
 mod tests;
@@ -12,7 +16,9 @@ use crate::setup;
 use crate::timer::{self, Clock, Phase};
 use crate::win;
 use eframe::egui::{self, *};
+use screens::{Format, Screen, MAX_SCREENS};
 use serde::{Deserialize, Serialize};
+use shortcuts::{Action, Assign, Recorded, Shortcuts};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -90,7 +96,7 @@ fn on_pixels(p: &Painter, at: Pos2) -> Pos2 {
     let ppp = p.ctx().pixels_per_point();
     pos2((at.x * ppp).round() / ppp, (at.y * ppp).round() / ppp)
 }
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug)]
 enum Mode {
     Circle,
     Bar,
@@ -142,6 +148,11 @@ struct Settings {
     overlay_rect: Option<[i32; 4]>,
     overlay_top_right: bool,
     hotkeys: bool,
+    /// The output screens that were open (their formats), and whether they open again at the next start.
+    screens: Vec<Format>,
+    restore_screens: bool,
+    /// Keyboard shortcuts inside the program's windows: on or off, and the keys that differ from the defaults.
+    shortcuts: Shortcuts,
     /// Which build wrote the file (0: before the floating timer's background became always see-through).
     schema: u32,
     /// The interface's language (1.1.0 settings.js `language`: 'ko' by default; 'zh' and 'ja' are new).
@@ -182,6 +193,9 @@ impl Default for Settings {
             overlay_rect: None,
             overlay_top_right: true,
             hotkeys: false,
+            screens: Vec::new(),
+            restore_screens: false,
+            shortcuts: Shortcuts::default(),
             schema: 0,
             language: Lang::Ko,
         }
@@ -213,6 +227,8 @@ impl Settings {
         self.volume = self.volume.clamp(0.0, 1.0);
         self.logo_size = self.logo_size.clamp(20.0, 300.0);
         self.logo_position = self.logo_position.min(5);
+        self.screens.truncate(MAX_SCREENS);
+        self.shortcuts.normalize();
         self.overlay_backdrop = if self.overlay_backdrop.is_finite() { self.overlay_backdrop.clamp(0.0, BACKDROP_MAX) } else { 0.0 };
         if self.overlay_rect.is_some_and(|r| r[2] < 1 || r[3] < 1) {
             self.overlay_rect = None;
@@ -246,8 +262,17 @@ struct Studio {
     last_saved: String,
     dirty_since: Option<Instant>,
     presentation: bool,
-    audience: bool,
-    audience_full: bool,
+    /// The open output screens (screens.rs) and the format a new one starts in.
+    screens: Vec<Screen>,
+    new_format: Format,
+    /// The shortcut being recorded in the 단축키 tab: the next key press is its new key.
+    recording: Option<Action>,
+    /// What the 단축키 tab says about the last key given (and whether it was refused).
+    shortcut_note: Option<(String, bool)>,
+    /// A text box had the keyboard when the last frame ended: no shortcut fires while it has.
+    typing: bool,
+    /// The keys shown in the hover buttons' tooltips.
+    hints: controls::Hints,
     confirm_reset: bool,
     prior_phase: Phase,
     shot: Option<PathBuf>,
@@ -262,8 +287,7 @@ struct Studio {
     place_overlay: bool,
     last_topmost: f64,
     activity: Instant,
-    audience_activity: Instant,
-    bars: HashMap<&'static str, Rect>,
+    bars: HashMap<String, Rect>,
     float_buttons: Vec<(controls::Cmd, Rect)>,
     gesture: Option<Gesture>,
     flash_since: Option<Instant>,
@@ -515,8 +539,12 @@ impl Studio {
             last_saved,
             dirty_since: None,
             presentation: false,
-            audience: false,
-            audience_full: false,
+            screens: Vec::new(),
+            new_format: Format::Follow,
+            recording: None,
+            shortcut_note: None,
+            typing: false,
+            hints: controls::Hints::default(),
             confirm_reset: false,
             prior_phase: Phase::Ready,
             shot,
@@ -530,7 +558,6 @@ impl Studio {
             place_overlay: false,
             last_topmost: 0.0,
             activity: Instant::now(),
-            audience_activity: Instant::now(),
             bars: HashMap::new(),
             float_buttons: Vec::new(),
             gesture: None,
@@ -599,6 +626,8 @@ impl Studio {
                 "to-ko" | "to-en" | "to-zh" | "to-ja" => app.auto_language = Lang::from_code(&d[3..]),
                 "timetab" => app.tab = 1,
                 "floattab" => app.tab = 2,
+                "screentab" => app.tab = 3,
+                "keytab" => app.tab = SHORTCUT_TAB,
                 "panelend" => app.panel_end = true,
                 "packer" => app.packer = Some(Packer { with_settings: true, made: None, error: None }),
                 "packed" => app.packer = Some(Packer { with_settings: true, made: Some(app.root.join(setup::SETUP_NAME)), error: None }),
@@ -609,6 +638,12 @@ impl Studio {
         app.overlay = floating;
         app.place_overlay = floating && !demos.contains(&"hidden");
         app.reload_images(ctx);
+        // The output screens of the last session come back when the person asked for that (never for a check).
+        if app.s.restore_screens && app.shot.is_none() {
+            for format in app.s.screens.clone() {
+                app.open_screen(format);
+            }
+        }
         app
     }
     fn now(&self) -> f64 {
@@ -641,7 +676,8 @@ impl Studio {
         if let Some(tick) = self.clock.next_change(now) {
             wait = wait.min(tick);
             // The ring and the bar move all the time until the end, then stand still.
-            if self.s.mode != Mode::Number && self.clock.elapsed(now) < self.clock.duration {
+            let moves = self.s.mode != Mode::Number || self.screens.iter().any(|s| s.format.moves(self.s.mode));
+            if moves && self.clock.elapsed(now) < self.clock.duration {
                 wait = wait.min((self.clock.duration / GRAPH_STEPS).clamp(FRAME.as_secs_f64(), GRAPH_SLOWEST));
             }
         }
@@ -654,8 +690,7 @@ impl Studio {
                 wait = wait.min(0.5 - e % 0.5);
             }
         }
-        for idle in [Some(self.activity), self.audience.then_some(self.audience_activity)].into_iter().flatten().map(|at| at.elapsed().as_secs_f64())
-        {
+        for idle in std::iter::once(self.activity).chain(self.screens.iter().map(|s| s.activity)).map(|at| at.elapsed().as_secs_f64()) {
             if idle < CONTROLS_IDLE {
                 wait = wait.min(CONTROLS_IDLE - idle);
             }
@@ -671,8 +706,8 @@ impl Studio {
     fn controls_forced(&self) -> bool {
         self.force_controls || self.pulse.is_some_and(|(from, to)| (from..to).contains(&self.now()))
     }
-    fn control_state(&self) -> controls::State {
-        controls::State { running: self.clock.running(), started: self.started(), accent: self.s.accent() }
+    fn control_state(&self) -> controls::State<'_> {
+        controls::State { running: self.clock.running(), started: self.started(), accent: self.s.accent(), hints: &self.hints }
     }
     fn picture_name(&self, slot: usize) -> &String {
         match slot {
@@ -856,10 +891,11 @@ impl Studio {
                     }
                     if ui.button(t("발표 화면 열기  ↗")).on_hover_text(t("별도 창을 다른 모니터로 옮길 수 있습니다")).clicked()
                     {
-                        self.audience = true;
-                        self.settle();
+                        self.open_screen(self.new_format);
                     }
-                    if ui.button(t("전체 화면  F11")).clicked() {
+                    let hint = self.s.shortcuts.hint(Action::Fullscreen);
+                    if ui.button(if hint.is_empty() { t("전체 화면").to_string() } else { format!("{}  {}", t("전체 화면"), hint) }).clicked()
+                    {
                         self.presentation = true;
                         self.settle();
                         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
@@ -989,7 +1025,10 @@ impl Studio {
                     self.clock.switch_qna(self.s.qna_duration, self.s.carry, self.now());
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(t("SPACE  시작 / 정지")).color(MUTED).size(11.0));
+                    let hint = self.s.shortcuts.hint(Action::ToggleTimer);
+                    if !hint.is_empty() {
+                        ui.label(RichText::new(tf!("{0}  시작 / 정지", hint)).color(MUTED).size(11.0));
+                    }
                 });
             });
             ui.add_space(4.0);
@@ -1034,18 +1073,22 @@ impl Studio {
                 });
                 ui.label(RichText::new(t("변경하면 미리보기에 바로 반영됩니다")).color(MUTED).size(11.0));
                 ui.add_space(5.0);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().button_padding = vec2(9.0, 9.0);
-                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
                     ui.selectable_value(&mut self.tab, 0, t("브랜드·이미지"));
                     ui.selectable_value(&mut self.tab, 1, t("시간·진행"));
                     ui.selectable_value(&mut self.tab, 2, t("투명 타이머"));
+                    ui.selectable_value(&mut self.tab, 3, t("출력 화면"));
+                    ui.selectable_value(&mut self.tab, SHORTCUT_TAB, t("단축키"));
                 });
                 ui.separator();
                 ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     match self.tab {
                         0 => self.brand_settings(ui, ctx),
                         1 => self.time_settings(ui, ctx),
+                        3 => self.screen_settings(ui, ctx),
+                        SHORTCUT_TAB => self.shortcut_settings(ui, ctx),
                         _ => self.floating_settings(ui, ctx),
                     }
                     if self.panel_end {
@@ -1123,7 +1166,7 @@ impl Studio {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.spacing_mut().button_padding.x = 6.0;
-            for m in [3, 5, 10, 15, 20] {
+            for m in timer::PRESET_MINUTES {
                 if ui.small_button(tf!("{0}분", m)).clicked() {
                     self.s.duration = (m * 60) as f64;
                     self.duration_changed();
@@ -1177,11 +1220,7 @@ impl Studio {
             ctx.send_viewport_cmd(ViewportCommand::WindowLevel(if self.s.pin { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal }));
         }
         ui.add_space(8.0);
-        ui.label(
-            RichText::new(t("단축키\nSpace  시작 / 일시정지\nR  초기화    Q  Q&A 전환\n1 / 2 / 3  표시 방식\nF11  전체 화면    Esc  돌아가기"))
-                .size(11.0)
-                .color(MUTED),
-        );
+        ui.label(RichText::new(t("단축키는 '단축키' 탭에서 바꿀 수 있습니다. Esc: 전체 화면 · 투명 타이머에서 돌아가기")).size(11.0).color(MUTED));
     }
     fn floating_settings(&mut self, ui: &mut Ui, ctx: &Context) {
         ui.label(RichText::new(t("배경 없이 다른 창 위에 늘 떠 있는 작은 타이머입니다. 발표 슬라이드 위에 올려 쓰세요. 떠 있는 동안에는 작업 표시줄에 나오지 않으니, 돌아올 때는 타이머에 마우스를 올려 톱니 버튼을 누르세요.")).size(12.0).color(MUTED));
@@ -1219,6 +1258,113 @@ impl Studio {
         field_label(ui, t("사용법"));
         ui.label(RichText::new(t("마우스를 올리면 리셋 · 재시작 · 멈춤 버튼이 나타납니다\n끌어서 이동 · 클릭 시작/멈춤 · 오른쪽 클릭 리셋\n오른쪽 아래 모서리를 끌거나 Ctrl+휠로 크기 조절\n톱니 버튼: 편집 화면으로 · X 버튼: 앱 종료\n버튼을 눌러도 발표 프로그램의 키보드 입력은 그대로입니다\n떠 있는 동안에는 작업 표시줄과 Alt+Tab에 나오지 않습니다")).size(11.0).color(MUTED));
     }
+    /// 출력 화면: open, change and close the extra windows (screens.rs).
+    fn screen_settings(&mut self, ui: &mut Ui, ctx: &Context) {
+        ui.label(
+            RichText::new(t("프로젝터 · 무대 모니터 · 스태프 노트북처럼 여러 화면에 타이머를 따로 띄웁니다. 화면마다 보여 줄 형식을 고를 수 있고, 시작 · 멈춤 · 리셋 · 시간 조정은 열린 모든 화면에 동시에 반영됩니다."))
+                .size(12.0)
+                .color(MUTED),
+        );
+        ui.add_space(6.0);
+        field_label(ui, t("새 화면의 형식"));
+        format_combo(ui, "new_screen_format", &mut self.new_format);
+        ui.add_space(4.0);
+        let full = self.screens.len() >= MAX_SCREENS;
+        if ui
+            .add_enabled(
+                !full,
+                Button::new(RichText::new(t("출력 화면 열기  ↗")).color(BG).strong())
+                    .min_size(vec2(ui.available_width(), 42.0))
+                    .fill(self.s.accent())
+                    .corner_radius(9),
+            )
+            .clicked()
+        {
+            self.open_screen(self.new_format);
+        }
+        if full {
+            ui.label(RichText::new(tf!("출력 화면은 {0}개까지 열 수 있습니다", MAX_SCREENS)).size(11.0).color(MUTED));
+        }
+        ui.add_space(8.0);
+        for i in 0..self.screens.len() {
+            let id = self.screens[i].id;
+            Frame::new().fill(BG).corner_radius(8).inner_margin(10).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(tf!("출력 화면 {0}", id)).strong());
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.small_button(t("닫기")).clicked() {
+                            self.screens[i].closed = true;
+                        }
+                        let on = self.screens[i].full;
+                        if ui.small_button(if on { t("전체 화면 끝내기") } else { t("전체 화면") }).clicked() {
+                            self.set_screen_full(ctx, i, !on);
+                        }
+                    });
+                });
+                format_combo(ui, ("screen_format", id), &mut self.screens[i].format);
+            });
+            ui.add_space(4.0);
+        }
+        if self.screens.len() > 1 && ui.small_button(t("모두 닫기")).clicked() {
+            self.close_screens();
+        }
+        ui.separator();
+        ui.checkbox(&mut self.s.restore_screens, t("다음에 앱을 열 때 이 화면들을 다시 열기"));
+        ui.add_space(4.0);
+        ui.label(RichText::new(t("열린 화면의 아무 곳이나 오른쪽 클릭하면 형식 · 전체 화면 · 닫기 메뉴가 나옵니다. 창을 다른 모니터로 끌어 놓고 전체 화면으로 바꾸면 그 모니터를 가득 채웁니다.")).size(11.0).color(MUTED));
+    }
+
+    /// 단축키: the list of keys, with recording, taking a key away, the defaults and an on / off switch (shortcuts.rs).
+    fn shortcut_settings(&mut self, ui: &mut Ui, _ctx: &Context) {
+        ui.checkbox(&mut self.s.shortcuts.enabled, t("단축키 사용"));
+        ui.label(
+            RichText::new(t("편집 화면 · 전체 화면 · 투명 타이머 · 출력 화면 어디서나 같은 키로 조작합니다. 입력 상자에 글을 쓰는 동안에는 (F1~F12 외에는) 작동하지 않습니다."))
+                .size(11.0)
+                .color(MUTED),
+        );
+        ui.add_space(4.0);
+        ui.add_enabled_ui(self.s.shortcuts.enabled, |ui| {
+            for a in Action::ALL {
+                ui.horizontal(|ui| {
+                    ui.add_sized([128.0, 24.0], Label::new(a.label()).truncate()).on_hover_text(a.label());
+                    let recording = self.recording == Some(a);
+                    let binding = self.s.shortcuts.binding(a);
+                    let (text, color) = match (recording, binding) {
+                        (true, _) => (t("키를 누르세요…").to_string(), self.s.accent()),
+                        (false, Some(b)) => (b.label(), WHITE),
+                        (false, None) => (t("없음").to_string(), MUTED),
+                    };
+                    let stroke = if recording { Stroke::new(1.5_f32, self.s.accent()) } else { Stroke::new(1.0_f32, LINE) };
+                    let key = ui.add(Button::new(RichText::new(text).color(color)).min_size(vec2(104.0, 24.0)).stroke(stroke));
+                    let key = key.on_hover_text(t("누른 다음 원하는 키(조합)를 입력하세요. Esc는 취소"));
+                    if key.clicked() {
+                        self.recording = if recording { None } else { Some(a) };
+                        self.shortcut_note = None;
+                    } else if recording && key.clicked_elsewhere() {
+                        self.recording = None;
+                    }
+                    if ui.add_enabled(binding.is_some(), Button::new("✖").small()).on_hover_text(t("이 단축키 해제")).clicked() {
+                        self.s.shortcuts.clear(a);
+                        self.shortcut_note = Some((tf!("{0}: 단축키를 해제했습니다", a.label()), false));
+                    }
+                });
+            }
+        });
+        if let Some((note, refused)) = &self.shortcut_note {
+            ui.add_space(4.0);
+            ui.label(RichText::new(note).size(11.0).color(if *refused { END } else { self.s.accent() }));
+        }
+        ui.add_space(6.0);
+        if ui.add_enabled(!self.s.shortcuts.is_default(), Button::new(t("기본값으로 되돌리기"))).clicked() {
+            self.s.shortcuts.reset();
+            self.recording = None;
+            self.shortcut_note = Some((t("단축키를 기본값으로 되돌렸습니다").to_string(), false));
+        }
+        ui.separator();
+        ui.label(RichText::new(t("바꿀 수 없는 키: Esc  전체 화면 · 투명 타이머에서 돌아가기, F2 / S  투명 타이머에서 편집 화면으로, Tab  이동\n한 키는 한 동작에만 쓸 수 있습니다. 이미 쓰는 키를 지정하면 그 동작에서 키를 가져옵니다.\n다른 프로그램을 보고 있을 때 쓰는 전역 단축키는 '투명 타이머' 탭에서 켭니다.")).size(11.0).color(MUTED));
+    }
+
     fn duration_changed(&mut self) {
         if !self.clock.running() && self.clock.elapsed(self.now()) == 0.0 {
             self.clock.duration = self.s.duration;
@@ -1305,78 +1451,222 @@ impl Studio {
     }
     /// The stage's hover buttons: shown while the mouse is over `area` and moved in the last
     /// 3 s (app.js wake), or rests on the bar; placed on the bottom edge of the timer.
-    fn hover_bar(&mut self, ui: &Ui, salt: &'static str, area: Rect, timer_rect: Rect, activity: Instant) -> Option<controls::Cmd> {
+    fn hover_bar(&mut self, ui: &Ui, salt: &str, area: Rect, timer_rect: Rect, activity: Instant) -> Option<controls::Cmd> {
         let hover = ui.ctx().input(|i| i.pointer.hover_pos()).filter(|p| area.contains(*p));
         let on_bar = hover.is_some_and(|h| self.bars.get(salt).is_some_and(|r| r.contains(h)));
         let show = self.controls_forced() || on_bar || (hover.is_some() && activity.elapsed().as_secs_f64() < CONTROLS_IDLE);
         let o = ui.ctx().animate_bool_with_time(ui.id().with(("controls", salt)), show, CONTROLS_FADE);
         let anchor = pos2(timer_rect.center().x, (timer_rect.bottom() + 20.0).min(area.bottom() - 6.0));
         let b = controls::bar(ui, salt, area, anchor, controls::STAGE, self.control_state(), o);
-        self.bars.insert(salt, b.rect);
+        self.bars.insert(salt.to_string(), b.rect);
         b.pressed
     }
+    /// The keys of the editor, the full-screen stage and the floating timer: the shortcuts first
+    /// (the same ones in every window, shortcuts.rs), then the few keys that cannot be changed.
     fn keys(&mut self, ctx: &Context) {
-        if self.overlay {
-            self.floating_keys(ctx);
+        if self.recording.is_some() {
             return;
         }
-        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+        self.shortcut_keys(ctx, None);
+        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+        if self.overlay {
+            // app.js KEYS: S, F2 and Esc go back to the editor.
+            if escape || ctx.input(|i| i.key_pressed(Key::S) || i.key_pressed(Key::F2)) {
+                self.leave_floating(ctx);
+            }
+            return;
+        }
+        if escape {
             self.presentation = false;
             self.settle();
             ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
         }
-        if fullscreen_key(ctx) {
-            self.presentation = !self.presentation;
-            self.settle();
-            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.presentation));
-        }
-        if ctx.wants_keyboard_input() {
-            return;
-        }
-        if ctx.input(|i| i.key_pressed(Key::Space)) {
-            self.toggle();
-        }
-        if ctx.input(|i| i.key_pressed(Key::R)) {
-            if self.clock.elapsed(self.now()) > 0.0 {
-                self.confirm_reset = true
-            } else {
-                self.reset();
-            }
-        }
-        if ctx.input(|i| i.key_pressed(Key::Q)) && self.s.qna_enabled {
-            self.clock.switch_qna(self.s.qna_duration, self.s.carry, self.now());
-        }
-        for (key, mode) in [(Key::Num1, Mode::Circle), (Key::Num2, Mode::Bar), (Key::Num3, Mode::Number)] {
-            if ctx.input(|i| i.key_pressed(key)) {
-                self.s.mode = mode;
-            }
+        if mac_fullscreen_key(ctx) {
+            self.toggle_presentation(ctx);
         }
     }
-    /// Keys while the floating timer has the keyboard (app.js KEYS): Space, R, arrows ±1 min / ±10 s, 1–3, S/F2/Esc editor.
-    fn floating_keys(&mut self, ctx: &Context) {
-        let pressed = |k| ctx.input(|i| i.key_pressed(k));
-        if pressed(Key::Space) {
-            self.toggle();
+    /// The shortcuts pressed in a window: of the editor (`from` is `None`) or of output screen number `from`.
+    /// They are taken out of the key events, so no button or slider acts on the same press.
+    fn shortcut_keys(&mut self, ctx: &Context, from: Option<usize>) {
+        if !self.s.shortcuts.enabled || self.recording.is_some() {
+            return;
         }
-        if pressed(Key::R) {
-            self.reset();
+        let typing = from.is_none() && self.typing;
+        let found = ctx.input_mut(|i| shortcuts::take(&mut i.events, &self.s.shortcuts, typing));
+        for action in found {
+            self.run_action(action, ctx, from);
         }
-        if pressed(Key::Q) && self.s.qna_enabled {
-            self.clock.switch_qna(self.s.qna_duration, self.s.carry, self.now());
+    }
+    /// Does what a shortcut stands for. Every timer action goes to the one clock, so it reaches
+    /// all windows at once, whichever of them had the key.
+    fn run_action(&mut self, action: Action, ctx: &Context, from: Option<usize>) {
+        match action {
+            Action::ToggleTimer => self.toggle(),
+            Action::Reset => {
+                // The editor asks first, as its Reset button did; the hover buttons and the screens do not (as in 1.1.0).
+                if from.is_some() || self.overlay || self.clock.elapsed(self.now()) <= 0.0 {
+                    self.reset();
+                } else {
+                    self.confirm_reset = true;
+                }
+            }
+            Action::SwitchQna => {
+                if self.s.qna_enabled {
+                    self.clock.switch_qna(self.s.qna_duration, self.s.carry, self.now());
+                }
+            }
+            Action::Add1m => self.adjust(60.0),
+            Action::Sub1m => self.adjust(-60.0),
+            Action::Add10s => self.adjust(10.0),
+            Action::Sub10s => self.adjust(-10.0),
+            Action::PresetPrev => self.step_preset(-1),
+            Action::PresetNext => self.step_preset(1),
+            Action::ModeCircle => self.s.mode = Mode::Circle,
+            Action::ModeBar => self.s.mode = Mode::Bar,
+            Action::ModeNumber => self.s.mode = Mode::Number,
+            Action::Fullscreen => match from {
+                Some(i) => self.set_screen_full(ctx, i, !self.screens[i].full),
+                None if !self.overlay => self.toggle_presentation(ctx),
+                None => {}
+            },
+            Action::OpenScreen => {
+                self.open_screen(self.new_format);
+            }
+            Action::CloseScreens => self.close_screens(),
         }
-        for (key, d) in [(Key::ArrowUp, 60.0), (Key::ArrowDown, -60.0), (Key::ArrowLeft, -10.0), (Key::ArrowRight, 10.0)] {
-            if pressed(key) {
-                self.adjust(d);
+        ctx.request_repaint();
+    }
+    fn toggle_presentation(&mut self, ctx: &Context) {
+        self.presentation = !self.presentation;
+        self.settle();
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.presentation));
+    }
+    /// The next preset length (3, 5, 10, 15, 20 minutes), the way the buttons under the time set one.
+    fn step_preset(&mut self, step: i32) {
+        self.s.duration = timer::step_preset(self.s.duration, step);
+        self.duration_changed();
+    }
+    /// Opens an output screen; `false` when as many are open as can be.
+    fn open_screen(&mut self, format: Format) -> bool {
+        if self.screens.len() >= MAX_SCREENS {
+            self.status = tf!("출력 화면은 {0}개까지 열 수 있습니다", MAX_SCREENS);
+            return false;
+        }
+        // The lowest number not in use, so that the numbers stay small as screens come and go.
+        let id = (1..).find(|n| !self.screens.iter().any(|s| s.id == *n)).unwrap_or(1);
+        self.screens.push(Screen::new(id, format));
+        self.settle();
+        true
+    }
+    fn close_screens(&mut self) {
+        for s in &mut self.screens {
+            s.closed = true;
+        }
+    }
+    fn set_screen_full(&mut self, ctx: &Context, i: usize, on: bool) {
+        self.screens[i].full = on;
+        self.settle();
+        ctx.send_viewport_cmd_to(screens::viewport_id(self.screens[i].id), ViewportCommand::Fullscreen(on));
+    }
+    fn facts(&self) -> screens::Facts {
+        screens::Facts { qna: self.clock.qna, running: self.clock.running(), started: self.started(), duration: self.clock.duration }
+    }
+    /// The output screens' windows, drawn from the program's one clock (screens.rs).
+    fn screen_windows(&mut self, ctx: &Context) {
+        self.screens.retain(|s| !s.closed);
+        for i in 0..self.screens.len() {
+            let (id, format) = (self.screens[i].id, self.screens[i].format);
+            let builder = ViewportBuilder::default()
+                .with_title(tf!("출력 화면 {0} · {1}", id, format.label()))
+                .with_inner_size([1100.0, 720.0])
+                .with_min_inner_size([480.0, 320.0])
+                .with_position(screens::cascade(id));
+            ctx.show_viewport_immediate(screens::viewport_id(id), builder, |ctx, _| self.screen_frame(ctx, i));
+        }
+        self.screens.retain(|s| !s.closed);
+    }
+    fn screen_frame(&mut self, ctx: &Context, i: usize) {
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.screens[i].closed = true;
+        }
+        self.shortcut_keys(ctx, Some(i));
+        if self.screens[i].full && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.set_screen_full(ctx, i, false);
+        }
+        if mac_fullscreen_key(ctx) {
+            self.set_screen_full(ctx, i, !self.screens[i].full);
+        }
+        if ctx.input(|i| i.pointer.delta() != Vec2::ZERO || i.pointer.any_pressed()) {
+            self.screens[i].activity = Instant::now();
+        }
+        let id = self.screens[i].id;
+        CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx, |ui| {
+            let v = self.clock.view(self.now(), self.s.warning, self.s.count_up, self.s.overtime, self.s.seconds_only);
+            let r = ui.max_rect();
+            let tr = screens::paint(ui.painter(), r, &self.s, self.screens[i].format.look(self.s.mode), &v, &self.facts(), &self.textures);
+            // A right click anywhere on the screen: its format, full screen, close (the hover buttons lie above this).
+            ui.interact(r, Id::new(("screen_menu", id)), Sense::click()).context_menu(|ui| {
+                field_label(ui, t("이 화면의 형식"));
+                for f in Format::ALL {
+                    if ui.selectable_label(self.screens[i].format == f, f.label()).clicked() {
+                        self.screens[i].format = f;
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                if ui.button(if self.screens[i].full { t("전체 화면 끝내기") } else { t("전체 화면") }).clicked() {
+                    self.set_screen_full(ui.ctx(), i, !self.screens[i].full);
+                    ui.close_menu();
+                }
+                if ui.button(t("이 화면 닫기")).clicked() {
+                    self.screens[i].closed = true;
+                    ui.close_menu();
+                }
+            });
+            if let Some(cmd) = self.hover_bar(ui, &format!("screen{id}"), r, tr, self.screens[i].activity) {
+                self.apply_cmd(cmd, ui.ctx());
+            }
+        });
+        if !self.force_controls && ctx.input(|i| i.pointer.hover_pos().is_some()) && self.screens[i].activity.elapsed().as_secs_f64() >= CONTROLS_IDLE
+        {
+            ctx.set_cursor_icon(CursorIcon::None);
+        }
+        if let Some(wait) = self.next_frame_in() {
+            ctx.request_repaint_after(wait);
+        }
+    }
+    /// While a shortcut is being recorded (the 단축키 tab), the next key press is its new key and
+    /// belongs to nothing else.
+    fn capture_recording(&mut self, ctx: &Context) {
+        let Some(action) = self.recording else { return };
+        if self.tab != SHORTCUT_TAB || self.overlay || self.presentation {
+            self.recording = None;
+            return;
+        }
+        match shortcuts::record(&ctx.input(|i| i.events.clone())) {
+            Recorded::Waiting => {}
+            Recorded::Cancelled => self.recording = None,
+            Recorded::Key(b) => {
+                self.recording = None;
+                self.give_key(action, b);
             }
         }
-        for (key, mode) in [(Key::Num1, Mode::Circle), (Key::Num2, Mode::Bar), (Key::Num3, Mode::Number)] {
-            if pressed(key) {
-                self.s.mode = mode;
+        ctx.input_mut(|i| i.events.retain(|e| !matches!(e, Event::Key { .. })));
+    }
+    /// Gives a recorded key to an action and says how that went.
+    fn give_key(&mut self, action: Action, b: shortcuts::Binding) {
+        self.shortcut_note = Some(if !b.storable() {
+            (t("이 키는 단축키로 지정할 수 없습니다").to_string(), true)
+        } else {
+            match self.s.shortcuts.assign(action, b) {
+                Assign::Set => (tf!("{0}: {1}", action.label(), b.label()), false),
+                Assign::Replaced(other) => (tf!("{0}: {1}  ({2}에서 가져왔습니다)", action.label(), b.label(), other.label()), false),
+                Assign::Reserved(why) => (why.message().to_string(), true),
             }
-        }
-        if pressed(Key::Escape) || pressed(Key::S) || pressed(Key::F2) {
-            self.leave_floating(ctx);
-        }
+        });
+    }
+    fn refresh_hints(&mut self) {
+        self.hints = controls::Hints { reset: self.s.shortcuts.hint(Action::Reset), toggle: self.s.shortcuts.hint(Action::ToggleTimer) };
     }
     /// Where the floating timer opens: last place if it is still on a screen, else the
     /// top-right of the work area under the window (placement.js pickBounds / topRight).
@@ -1553,7 +1843,7 @@ impl Studio {
                 self.control_state(),
                 o,
             );
-            self.bars.insert("float", b.rect);
+            self.bars.insert("float".to_string(), b.rect);
             cmd = b.pressed;
             if o > 0.01 {
                 bar = b.rect;
@@ -1670,11 +1960,13 @@ impl Studio {
         }
     }
 }
-/// F11 switches full screen; on macOS, where F11 belongs to the system, so does its own Ctrl+Cmd+F.
-fn fullscreen_key(ctx: &Context) -> bool {
-    ctx.input(|i| i.key_pressed(Key::F11))
-        || (cfg!(target_os = "macos") && ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::MAC_CMD | Modifiers::CTRL, Key::F))))
+/// On macOS, where F11 belongs to the system, Ctrl+Cmd+F switches full screen as well (F11 itself is the
+/// Fullscreen shortcut, which can be changed; this one cannot).
+fn mac_fullscreen_key(ctx: &Context) -> bool {
+    cfg!(target_os = "macos") && ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::MAC_CMD | Modifiers::CTRL, Key::F)))
 }
+/// The tab of the inspector with the shortcut list.
+const SHORTCUT_TAB: usize = 4;
 /// The icon of the program's windows (the same drawing build.rs puts inside the program file).
 /// (macOS shows it in the Dock, large.)
 pub(crate) fn window_icon() -> egui::IconData {
@@ -1916,6 +2208,14 @@ pub(crate) fn install_fonts(ctx: &Context, language: Lang, wide: bool) {
     fonts.families.insert(bold(), heavy);
     ctx.set_fonts(fonts);
 }
+/// A box to choose the format of an output screen from.
+fn format_combo(ui: &mut Ui, salt: impl std::hash::Hash, format: &mut Format) {
+    ComboBox::from_id_salt(salt).selected_text(format.label()).width(ui.available_width().min(250.0)).show_ui(ui, |ui| {
+        for f in Format::ALL {
+            ui.selectable_value(format, f, f.label());
+        }
+    });
+}
 fn field_label(ui: &mut Ui, s: &str) {
     ui.label(RichText::new(s).size(12.0).color(MUTED));
 }
@@ -1993,6 +2293,8 @@ impl eframe::App for Studio {
         }
         self.hotkey_sync(ctx);
         self.window_upkeep(ctx);
+        self.refresh_hints();
+        self.capture_recording(ctx);
         if self.auto_float.is_some_and(|at| self.frames == at) {
             self.enter_floating(ctx);
         }
@@ -2052,52 +2354,11 @@ impl eframe::App for Studio {
                 });
             });
         }
-        if self.audience {
-            ctx.show_viewport_immediate(
-                ViewportId::from_hash_of("audience"),
-                ViewportBuilder::default()
-                    .with_title(t("행사 발표 화면 · F11 전체 화면"))
-                    .with_inner_size([1100.0, 720.0])
-                    .with_min_inner_size([480.0, 320.0]),
-                |ctx, _| {
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        self.audience = false;
-                    }
-                    if fullscreen_key(ctx) {
-                        self.audience_full = !self.audience_full;
-                        self.settle();
-                        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.audience_full));
-                    }
-                    if ctx.input(|i| i.key_pressed(Key::Escape)) {
-                        self.audience_full = false;
-                        self.settle();
-                        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
-                    }
-                    if ctx.input(|i| i.key_pressed(Key::Space)) {
-                        self.toggle();
-                    }
-                    if ctx.input(|i| i.pointer.delta() != Vec2::ZERO || i.pointer.any_pressed()) {
-                        self.audience_activity = Instant::now();
-                    }
-                    CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx, |ui| {
-                        let v = self.clock.view(self.now(), self.s.warning, self.s.count_up, self.s.overtime, self.s.seconds_only);
-                        let r = ui.max_rect();
-                        let tr = scene::render(ui.painter(), r, &self.s, &v, &self.textures, self.clock.qna, self.clock.running());
-                        if let Some(cmd) = self.hover_bar(ui, "audience", r, tr, self.audience_activity) {
-                            self.apply_cmd(cmd, ui.ctx());
-                        }
-                    });
-                    if !self.force_controls
-                        && ctx.input(|i| i.pointer.hover_pos().is_some())
-                        && self.audience_activity.elapsed().as_secs_f64() >= CONTROLS_IDLE
-                    {
-                        ctx.set_cursor_icon(CursorIcon::None);
-                    }
-                    if let Some(wait) = self.next_frame_in() {
-                        ctx.request_repaint_after(wait);
-                    }
-                },
-            );
+        self.screen_windows(ctx);
+        // What is saved of the output screens: the formats of the ones that are open.
+        let open: Vec<Format> = self.screens.iter().map(|s| s.format).collect();
+        if open != self.s.screens {
+            self.s.screens = open;
         }
         let serial = serde_json::to_string(&self.s).unwrap();
         if serial != self.last_saved && self.shot.is_none() {
@@ -2122,6 +2383,8 @@ impl eframe::App for Studio {
             eprintln!("Screenshot timeout");
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
+        // Did a text box have the keyboard? (Only a text box asks the system's input method for a place: next frame's shortcuts wait for it.)
+        self.typing = ctx.output(|o| o.ime.is_some());
         if let Some(wait) = self.next_frame_in() {
             ctx.request_repaint_after(wait);
         }
