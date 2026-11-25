@@ -95,15 +95,28 @@ Audience window
   "Audience window" opens a separate window; move it to the projector or another monitor.
   In that window F11 is fullscreen and Esc goes back to a window.
   The editor's "Fullscreen" button can be used as well.
+  The "Screens" tab opens up to six output windows, each in a format of its own: as the editor,
+  circle, bar, digits, presenter view (set time, elapsed, remaining, Q&A or warning time) or compact.
+  All of them show the same clock, so start, pause and time changes reach every screen at once,
+  and a new screen shows the current state from its first frame. Right-click a screen to change
+  its format, make it fullscreen or close it. "Open these screens again at the next start" brings
+  the open screens back when the program starts.
 
 Shortcuts (while the app window is selected)
   Space  start / pause
   1 / 2 / 3  circle / bar / digits
   R  reset (asks first)
   Q  switch to Q&A (if Q&A is on)
+  Up / Down  time +1 / -1 minute        Right / Left  time +10 / -10 seconds
+  [ / ]  previous / next time preset (3, 5, 10, 15, 20 minutes)
+  N  open a new output screen
   F11  fullscreen
   Esc  leave fullscreen
-  The timer shortcuts do not act while you are typing text.
+  They work in the output screens too, and they all act on the same timer.
+  The "Shortcuts" tab changes them: click the key of an action and press the new key (Esc cancels), clear a
+  key, go back to the defaults, or switch all shortcuts off. A key that another action already
+  has is taken from that action, and keys the system or text editing uses (Ctrl+C, Alt+F4 ...)
+  are refused. The shortcuts do not act while you are typing text, except the function keys.
 
 Files and storage
   PNG, JPG, WebP and BMP images and WAV/MP3 end sounds can be used.

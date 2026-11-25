@@ -15,10 +15,15 @@ A **branded timer for events and presentations** on Windows and macOS, written i
   어두운 화면에서 잘 안 보이는 어두운 로고는 저절로 흰색으로 나옵니다 (로고 색: 자동 · 원래 색 · 흰색).
 - **투명 타이머**: 배경 없이 모든 창 위에 떠 있고, 마우스를 올리면 리셋 · 재시작 · 멈춤 버튼이 나옵니다.
   빈 곳을 누르면 뒤에 있는 발표 자료가 눌리고, 버튼을 눌러도 발표 프로그램의 키보드 입력을 가져가지 않습니다.
-- **발표 화면**: 프로젝터나 다른 모니터로 옮길 수 있는 별도 창과 전체 화면.
+- **출력 화면**: 프로젝터나 다른 모니터로 옮길 수 있는 별도 창을 최대 6개까지 열고, 화면마다 형식을 고릅니다
+  (메인과 같게 · 원그래프 · 막대그래프 · 숫자 · 발표자용 · 작게). 모든 화면은 하나의 시계를 같이 보므로
+  시작 · 멈춤 · 시간 조절이 지연 없이 한꺼번에 반영되고, 새로 연 화면도 곧바로 지금 상태로 나옵니다.
+  화면을 오른쪽 클릭하면 형식 · 전체 화면 · 닫기 메뉴가 나오고, 열어 둔 화면을 다음 실행 때 다시 열 수도 있습니다.
 - **진행**: 발표 → Q&A 전환(자동 · 수동, 남은 시간 이월), 종료 전 경고, 종료 알림음, 초과 시간, 카운트업.
-- **단축키**: 창 안에서는 Space · R · Q · 1/2/3 · F11, 다른 프로그램을 보고 있을 때는 전역 단축키
-  (Ctrl+Alt+Space / R / Q, 투명 타이머가 떠 있을 때는 Ctrl+1 / 2 / 3).
+- **단축키**: 창 안에서는 Space(시작 / 정지) · R · Q · ↑↓(±1분) · ←→(±10초) · [ ] (시간 프리셋) · 1/2/3 · F11 · N(새 출력 화면).
+  편집 화면의 "단축키" 탭에서 키를 직접 눌러 바꾸고, 하나씩 지우고, 기본값으로 되돌리고, 전체를 끌 수 있습니다.
+  같은 키를 두 동작에 주면 먼저 쓰던 동작에서 가져오고, 입력 칸에 글을 쓰는 동안과 시스템이 쓰는 키(Ctrl+C, Alt+F4 등)는 지정되지 않습니다.
+  다른 프로그램을 보고 있을 때는 전역 단축키(Ctrl+Alt+Space / R / Q, 투명 타이머가 떠 있을 때는 Ctrl+1 / 2 / 3)를 씁니다.
 - **언어**: 한국어 · English · 中文(简体) · 日本語. 오른쪽 위 언어 상자에서 바로 바뀝니다.
 - **설치 파일 만들기**: 프로그램이 지금 설정과 이미지를 담아 스스로 설치 파일이 됩니다.
   관리자 권한 없이 사용자 계정에 설치되고, Windows 설정의 앱 목록에서 제거할 수 있습니다.
@@ -93,6 +98,7 @@ cargo test
 |---|---|
 | `src/timer.rs` | 시간 계산: 시작 · 멈춤, 경고 · 종료 · 초과, Q&A 전환 |
 | `src/studio.rs` | 편집 화면, 설정 저장, 발표 화면, 투명 타이머로 전환 |
+| `src/screens.rs`, `src/shortcuts.rs` | 출력 화면(형식 · 그리기)과 단축키(동작 · 키 지정 · 충돌 · 키 입력 처리) |
 | `src/scene.rs`, `src/overlay.rs`, `src/controls.rs` | 발표 화면, 투명 타이머, 마우스를 올리면 나오는 버튼 |
 | `src/win.rs`, `src/win_mac.rs` | 창 처리: 항상 위, 클릭 통과, 전역 단축키 (Windows, macOS) |
 | `src/lang.rs`, `src/strings.rs` | 네 언어의 문구 표와 언어 전환 |
@@ -125,11 +131,19 @@ digits. A dark logo that would be hard to see on the dark stage is shown in whit
 - **Floating timer**: no background, always on top of your slides. Hover for Reset · Resume · Pause;
   clicks on empty spots go to the window behind, and pressing the buttons never takes the keyboard
   away from the slide show.
-- **Audience window** for a projector or second monitor, and fullscreen.
+- **Output screens**: up to six extra windows for projectors and other monitors, each in a format of
+  its own (as the editor · circle · bar · number · presenter view · compact). All of them read one
+  clock, so start, pause and time changes reach every screen at once, and a screen opened late shows
+  the current state in its first frame. Right-click a screen for its format, full screen and close;
+  the open screens can come back at the next start.
 - **Running an event**: presentation → Q&A (automatic or by hand, unused time can carry over), a
   warning before the end, an end sound, overtime and count-up.
-- **Hotkeys** in the window (Space, R, Q, 1/2/3, F11) and system-wide (Ctrl+Alt+Space / R / Q;
-  Ctrl+1 / 2 / 3 while the floating timer is up).
+- **Keyboard shortcuts** in the windows: Space (start / pause), R, Q, ↑↓ (±1 min), ←→ (±10 s), [ ] (time
+  presets), 1/2/3, F11, N (new output screen). The "Shortcuts" tab records a new key from the keyboard,
+  clears one, goes back to the defaults, or switches all of them off. A key given to a second action is
+  taken from the first; nothing fires while a text box has the keyboard, and keys the system uses
+  (Ctrl+C, Alt+F4 …) cannot be given. System-wide hotkeys (Ctrl+Alt+Space / R / Q; Ctrl+1 / 2 / 3 while
+  the floating timer is up) are separate.
 - **Languages**: 한국어, English, 中文 (Simplified), 日本語, switched from the box at the top right.
 - **Its own setup file**: "Make setup file" packs the program with your current settings and
   images. It installs per user without administrator rights and can be removed from Windows'
